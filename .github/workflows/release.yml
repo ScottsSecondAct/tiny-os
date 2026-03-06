@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # e.g. v0.1.0
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build kernel8.img for Raspberry Pi 5
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build kernel8.img
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Install Rust toolchain
+        run: rustup show   # rust-toolchain.toml drives the install
+
+      - name: Install cargo-binutils
+        run: cargo install cargo-binutils
+
+      - name: Build (Pi 5)
+        run: cargo build --release
+
+      - name: Verify _start at 0x80000
+        run: |
+          aarch64-linux-gnu-nm target/aarch64-unknown-none/release/kernel \
+            | grep _start | grep -q "0000000000080000"
+
+      - name: Produce kernel8.img
+        run: |
+          cargo objcopy --release -- -O binary kernel8.img
+          ls -lh kernel8.img
+
+      - name: Generate SHA256 checksum
+        run: sha256sum kernel8.img config.txt > SHA256SUMS.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            kernel8.img
+            config.txt
+            SHA256SUMS.txt
+
+  # ---------------------------------------------------------------------------
+  # Create GitHub Release and attach assets
+  # ---------------------------------------------------------------------------
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/kernel8.img
+            artifacts/config.txt
+            artifacts/SHA256SUMS.txt
