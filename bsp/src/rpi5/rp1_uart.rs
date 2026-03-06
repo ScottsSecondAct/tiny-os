@@ -41,6 +41,12 @@ const CR_RXE: u32 = 1 << 9; // Receive Enable
 /// Safe to construct: MMIO access is gated behind `init()`.
 pub struct Rp1Uart;
 
+impl Default for Rp1Uart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Rp1Uart {
     pub const fn new() -> Self {
         Self

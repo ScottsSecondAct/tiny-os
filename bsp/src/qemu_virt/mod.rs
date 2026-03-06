@@ -20,6 +20,12 @@ const FR_TXFF: u32 = 1 << 5;
 /// Zero-size type representing the BCM2837 QEMU PL011 UART0.
 pub struct Pl011Uart;
 
+impl Default for Pl011Uart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Pl011Uart {
     pub const fn new() -> Self {
         Self
