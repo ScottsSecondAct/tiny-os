@@ -1,0 +1,17 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kernel"
+path = "src/main.rs"
+
+[dependencies]
+arch = { path = "../arch" }
+bsp  = { path = "../bsp", default-features = false }
+
+[features]
+default = ["bsp-rpi5"]
+bsp-rpi5 = ["bsp/bsp-rpi5"]
+bsp-qemu = ["bsp/bsp-qemu"]

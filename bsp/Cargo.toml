@@ -1,0 +1,15 @@
+[package]
+name = "bsp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arch = { path = "../arch" }
+
+[features]
+default = ["bsp-rpi5"]
+bsp-rpi5 = []
+bsp-qemu = []
+
+[lib]
+name = "bsp"

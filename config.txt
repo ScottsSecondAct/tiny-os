@@ -1,0 +1,19 @@
+# Raspberry Pi 5 config.txt for tiny_os bare-metal boot.
+#
+# Place this file (along with start4.elf, fixup4.dat, bcm2712-rpi-5-b.dtb,
+# and kernel8.img) in the FAT32 boot partition of your SD card.
+
+# Boot a 64-bit AArch64 kernel.
+arm_64bit=1
+
+# Disable the firmware OS compatibility check (required for bare-metal).
+os_check=0
+
+# Pre-initialize RP1 UART0 at 115200 baud and preserve the PCIe link.
+# Without this the firmware may reset the PCIe x4 controller, tearing down
+# the RP1 link and making the UART invisible to our driver.
+uart_early_init=1
+pciex4_reset=0
+
+# Ensure UART is enabled.
+enable_uart=1

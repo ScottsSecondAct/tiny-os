@@ -1,0 +1,18 @@
+# Rust build output
+/target/
+
+# Compiled kernel binary (generated artifact, run `cargo objcopy` to produce)
+kernel8.img
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS metadata
+.DS_Store
+
+# Debugging artifacts
+*.map
