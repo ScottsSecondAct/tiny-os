@@ -17,25 +17,25 @@ use arch::uart::UartDriver;
 use core::fmt;
 
 // Register offsets
-const DR:    usize = 0x000;
-const FR:    usize = 0x018;
-const IBRD:  usize = 0x024;
-const FBRD:  usize = 0x028;
+const DR: usize = 0x000;
+const FR: usize = 0x018;
+const IBRD: usize = 0x024;
+const FBRD: usize = 0x028;
 const LCR_H: usize = 0x02C;
-const CR:    usize = 0x030;
+const CR: usize = 0x030;
 
 // Flag Register bits
 const FR_TXFF: u32 = 1 << 5; // Transmit FIFO Full
 const FR_BUSY: u32 = 1 << 3; // UART Busy
 
 // LCR_H bits
-const LCR_H_FEN:  u32 = 1 << 4; // Enable FIFOs
+const LCR_H_FEN: u32 = 1 << 4; // Enable FIFOs
 const LCR_H_WLEN: u32 = 0b11 << 5; // Word length = 8 bits (11)
 
 // CR bits
 const CR_UARTEN: u32 = 1 << 0; // UART Enable
-const CR_TXE:    u32 = 1 << 8; // Transmit Enable
-const CR_RXE:    u32 = 1 << 9; // Receive Enable
+const CR_TXE: u32 = 1 << 8; // Transmit Enable
+const CR_RXE: u32 = 1 << 9; // Receive Enable
 
 /// Zero-size type representing the RP1 UART0 peripheral.
 /// Safe to construct: MMIO access is gated behind `init()`.

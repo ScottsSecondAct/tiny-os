@@ -1,9 +1,9 @@
 #![no_std]
 
-#[cfg(feature = "bsp-rpi5")]
-pub mod rpi5;
 #[cfg(feature = "bsp-qemu")]
 pub mod qemu_virt;
+#[cfg(feature = "bsp-rpi5")]
+pub mod rpi5;
 
 // Re-export the active platform UART as `PlatformUart` so kernel code
 // is written against a single name regardless of which BSP is compiled.

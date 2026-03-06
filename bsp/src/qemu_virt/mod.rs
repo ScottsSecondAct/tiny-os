@@ -12,8 +12,8 @@ use core::fmt;
 
 const UART0_BASE: usize = 0x3F20_1000;
 
-const DR:    usize = 0x000;
-const FR:    usize = 0x018;
+const DR: usize = 0x000;
+const FR: usize = 0x018;
 
 const FR_TXFF: u32 = 1 << 5;
 
