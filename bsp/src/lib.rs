@@ -5,10 +5,14 @@ pub mod qemu_virt;
 #[cfg(feature = "bsp-rpi5")]
 pub mod rpi5;
 
-// Re-export the active platform UART as `PlatformUart` so kernel code
-// is written against a single name regardless of which BSP is compiled.
 #[cfg(feature = "bsp-rpi5")]
 pub use rpi5::Rp1Uart as PlatformUart;
 
 #[cfg(feature = "bsp-qemu")]
 pub use qemu_virt::Pl011Uart as PlatformUart;
+
+#[cfg(feature = "bsp-rpi5")]
+pub use rpi5::memory_map::{GIC_CPU_BASE, GIC_DIST_BASE};
+
+#[cfg(feature = "bsp-qemu")]
+pub use qemu_virt::memory_map::{GIC_CPU_BASE, GIC_DIST_BASE};

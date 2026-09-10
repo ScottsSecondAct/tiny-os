@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 1: Bare-Metal Bootstrap & UART Console** — get the toolchain working, boot AArch64 in EL1, print to the serial console via RP1 UART.
+**Phase 2: Interrupts & Timer** — complete. Exception vector table, GIC-400 driver, ARM Generic Timer producing 1 kHz system tick, interactive shell with uptime/ticks/info/svc commands. Next up: Phase 3 (Memory Management).
 
 ## Target Hardware
 
@@ -22,7 +22,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 - **Kernel load address:** `0x80000` (RPi firmware convention)
 - **RP1 peripheral window:** Physical address `0x1F_0000_0000`, maps to RP1 internal `0x4000_0000`
 - **GIC-400:** Standard ARM GICv2 interrupt controller
-- **Timer:** ARM Generic Timer (CNTP_CTL_EL0 / CNTP_TVAL_EL0), frequency from CNTFRQ_EL0
+- **Timer:** ARM Generic Timer (virtual timer CNTV_*_EL0 on QEMU, physical CNTP_*_EL0 on Pi 5), frequency from CNTFRQ_EL0
 - **Device tree:** Firmware passes DTB at boot; use for memory/peripheral discovery
 
 ### Critical config.txt Settings (bare metal)
@@ -77,39 +77,35 @@ tiny_os/
 │   │   ├── main.rs         # kmain() entry point
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
-│   │   ├── sched/          # Scheduler, task model (Phase 4+)
-│   │   ├── sync/           # Mutex, semaphore, MQ (Phase 5+)
-│   │   ├── mm/             # Page allocator, heap, VMM (Phase 3+)
-│   │   ├── fs/             # VFS, FAT32 (Phase 9+)
-│   │   ├── net/            # TCP/IP, sockets (Phase 10+)
-│   │   ├── drivers/        # Driver traits + registry (Phase 6+)
-│   │   ├── shell/          # Interactive shell (Phase 9+)
-│   │   └── klog/           # Kernel logging (Phase 6+)
+│   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
+│   │   └── shell.rs        # Interactive UART shell (help, uptime, ticks, info, svc, reboot)
 │   └── link.ld             # Linker script
 ├── arch/                   # Architecture-specific crate
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
+│       ├── uart.rs         # UartDriver trait
+│       ├── irq.rs          # InterruptController trait
+│       ├── timer.rs        # Timer trait
 │       └── aarch64/
-│           ├── boot.S      # _start entry, secondary core parking
-│           ├── vectors.S   # Exception vector table (Phase 2+)
-│           ├── context.rs  # Context switch (Phase 4+)
-│           ├── mmu.rs      # Translation tables (Phase 3+)
-│           ├── gic.rs      # GIC-400 driver (Phase 2+)
-│           ├── timer.rs    # Generic Timer (Phase 2+)
-│           └── smp.rs      # Multi-core startup (Phase 7+)
+│           ├── mod.rs
+│           ├── boot.S      # _start entry, EL3→EL1 drop, secondary core parking
+│           ├── vectors.S   # Exception vector table (2KB aligned, 16 entries)
+│           ├── exceptions.rs # TrapFrame, IRQ dispatch table, tick counter
+│           ├── gic.rs      # GIC-400 driver (GICv2)
+│           └── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick)
 └── bsp/                    # Board Support Packages
     ├── Cargo.toml
     └── src/
+        ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases)
         ├── rpi5/
         │   ├── mod.rs
         │   ├── rp1_uart.rs
-        │   ├── rp1_gpio.rs     # Phase 6+
-        │   ├── rp1_eth.rs      # Phase 10+
-        │   ├── emmc2.rs        # Phase 8+
         │   └── memory_map.rs
-        └── qemu_virt/          # QEMU virt/raspi4b target
-            └── mod.rs
+        └── qemu_virt/
+            ├── mod.rs
+            ├── uart.rs     # BCM2711 PL011 UART at 0xFE20_1000
+            └── memory_map.rs
 ```
 
 ## Scheduler Design (for reference in Phase 4+)
@@ -133,13 +129,38 @@ tiny_os/
 - **MMIO access:** Always via `core::ptr::read_volatile` / `write_volatile`, wrapped in typed register structs
 - **Logging:** Use `kprintln!()` for early boot; transition to `klog` subsystem in Phase 6
 
-## Phase 1 Deliverables Checklist
+## Completed Phases
 
-- [ ] Cargo workspace with `kernel`, `arch`, `bsp` crates
-- [ ] Linker script: kernel at 0x80000, sections: .text, .rodata, .data, .bss, .stack
-- [ ] `_start` in AArch64 assembly: park secondary cores (WFE), zero .bss, set SP, branch to kmain
-- [ ] RP1 UART driver (MMIO volatile writes to RP1 peripheral window)
-- [ ] `kprint!()` / `kprintln!()` macros via `core::fmt::Write`
-- [ ] `panic_handler` that prints message + location, then infinite WFE
-- [ ] Build pipeline: `cargo build` → `cargo objcopy` → `kernel8.img`
-- [ ] Boot test on QEMU (`-M raspi4b -serial stdio`) and/or real Pi 5 hardware
+### Phase 1 — Bare-Metal Bootstrap & UART Console ✅
+
+- [x] Cargo workspace with `kernel`, `arch`, `bsp` crates
+- [x] Linker script: kernel at 0x80000, sections: .text, .rodata, .data, .bss, .stack
+- [x] `_start` in AArch64 assembly: park secondary cores (WFE), zero .bss, set SP, branch to kmain
+- [x] RP1 UART driver (MMIO volatile writes to RP1 peripheral window)
+- [x] `kprint!()` / `kprintln!()` macros via `core::fmt::Write`
+- [x] `panic_handler` that prints message + location, then infinite WFE
+- [x] Build pipeline: `cargo build` → `cargo objcopy` → `kernel8.img`
+- [x] Boot test on QEMU (`-M raspi4b -serial stdio`) and real Pi 5 hardware
+
+### Phase 2 — Interrupts & Timer ✅
+
+- [x] Exception vector table (`vectors.S`) — 2KB aligned, 16 entries with TrapFrame save/restore
+- [x] GIC-400 driver: distributor + CPU interface init, IRQ enable/disable/priority, EOI
+- [x] `InterruptController` HAL trait
+- [x] ARM Generic Timer driver — virtual timer (CNTV) with CVAL-based acknowledge for accurate 1kHz tick
+- [x] `Timer` HAL trait with periodic tick and monotonic clock
+- [x] System tick ISR incrementing a global tick counter (AtomicU64)
+- [x] Sync exception handler — SVC detection with ELR advance, ESR decoding
+- [x] Interactive shell: help, uptime, ticks, info, svc, reboot
+- [x] Boot: EL3→EL1 (secure) on QEMU, EL2→EL1 on real Pi 5
+- [x] Verified: 250 ticks in 250ms (±0.4%), uptime accurate to wall-clock
+
+## Phase 3 Deliverables Checklist (next)
+
+- [ ] Device tree (DTB) parser for memory regions and peripheral addresses
+- [ ] Physical page frame allocator (`PageAllocator` trait) — bitmap or buddy system
+- [ ] AArch64 translation table setup (4 KB pages, 48-bit VA)
+- [ ] `AddressSpace` HAL trait
+- [ ] Identity mapping for kernel, MMIO device regions mapped as device memory
+- [ ] `kmalloc` / `kfree` heap allocator (slab or linked-list)
+- [ ] Memory stats via `kprintln!`

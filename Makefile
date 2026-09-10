@@ -13,7 +13,7 @@ QEMU           := qemu-system-aarch64
 
 RELEASE_FLAGS  := --release
 QEMU_FLAGS     := --no-default-features --features kernel/bsp-qemu
-QEMU_MACHINE   := -M raspi3b -serial stdio -display none -no-reboot
+QEMU_MACHINE   := -M raspi4b -serial stdio -display none -no-reboot
 KERNEL_ELF     := target/aarch64-unknown-none/release/kernel
 KERNEL_IMG     := kernel8.img
 
@@ -21,7 +21,7 @@ KERNEL_IMG     := kernel8.img
 
 all: qemu
 
-## Build for QEMU (raspi3b, BCM2837 PL011 UART) and run.
+## Build for QEMU (raspi4b, BCM2711 GIC-400 + PL011 UART) and run.
 qemu: _build_qemu
 	$(QEMU) $(QEMU_MACHINE) -kernel $(KERNEL_ELF)
 

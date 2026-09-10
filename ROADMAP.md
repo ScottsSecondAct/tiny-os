@@ -16,22 +16,25 @@ Get the toolchain working, boot AArch64 in EL1, and print to the serial console.
 - [x] `kprint!()` / `kprintln!()` macros via `core::fmt::Write`
 - [x] `panic_handler` that prints message + location, then infinite WFE
 - [x] Build pipeline: `cargo build` → `cargo objcopy` → `kernel8.img`
-- [x] QEMU test target (`-M raspi3b -serial stdio`) with PL011 UART
+- [x] QEMU test target (`-M raspi4b -serial stdio`) with PL011 UART
 
 ---
 
-## Phase 2 — Interrupts & Timer
+## Phase 2 — Interrupts & Timer ✅
 
 Wire up the GIC-400 interrupt controller and the ARM Generic Timer to produce a periodic system tick.
 
 **Deliverables:**
-- [ ] Exception vector table (`vectors.S`) for EL1
-- [ ] GIC-400 driver: distributor + CPU interface init, IRQ enable/disable, EOI
-- [ ] `InterruptController` HAL trait
-- [ ] ARM Generic Timer driver: CNTP_CTL_EL0 / CNTP_TVAL_EL0, frequency from CNTFRQ_EL0
-- [ ] `Timer` HAL trait with periodic tick and monotonic clock
-- [ ] System tick ISR incrementing a global tick counter
-- [ ] `kprintln!` from interrupt context (DAIF-safe)
+- [x] Exception vector table (`vectors.S`) — 2KB aligned, 16 entries, full TrapFrame save/restore
+- [x] GIC-400 driver: distributor + CPU interface init, IRQ enable/disable/priority, EOI
+- [x] `InterruptController` HAL trait
+- [x] ARM Generic Timer driver: virtual timer (CNTV_*_EL0), CVAL-based acknowledge, 1 kHz tick
+- [x] `Timer` HAL trait with periodic tick and monotonic clock
+- [x] System tick ISR incrementing a global tick counter (AtomicU64)
+- [x] Sync exception handler: SVC detection (advance ELR), ESR decoding
+- [x] Interactive shell: help, uptime, ticks, info, svc, reboot
+- [x] Boot: EL3→EL1 (secure) on QEMU raspi4b, EL2→EL1 on real Pi 5
+- [x] Verified: 250 ticks in 250 ms (±0.4% accuracy)
 
 ---
 

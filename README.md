@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 1 complete** — bare-metal boot, UART console, and `kprint!` macros working on both QEMU and real Pi 5 hardware.
+**Phase 2 complete** — exception vectors, GIC-400 interrupt controller, ARM Generic Timer producing a 1 kHz system tick, and an interactive UART shell with uptime/ticks/info commands. Timer accuracy verified at 250 ticks in 250 ms on QEMU.
 
 ## Target Hardware
 
@@ -13,7 +13,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 |---|---|---|
 | Raspberry Pi 5 | BCM2712 (4× Cortex-A76) | Primary target |
 | Raspberry Pi 500 / CM5 | BCM2712 | Compatible |
-| QEMU `-M raspi3b` | BCM2837 (Cortex-A53) | Development/CI |
+| QEMU `-M raspi4b` | BCM2711 (Cortex-A72) | Development/CI |
 
 UART, GPIO, SPI, I²C, and Ethernet are provided by the **RP1 southbridge**, connected via PCIe x4.
 
@@ -49,12 +49,12 @@ cargo install cargo-binutils
 ### QEMU (quickest path)
 
 ```sh
-make          # builds and launches QEMU raspi3b
+make          # builds and launches QEMU raspi4b
 # or equivalently:
 make qemu
 ```
 
-UART output appears on stdout. Press `Ctrl-A X` to quit QEMU.
+UART output appears on stdout. Type `help` at the `tiny_os>` prompt. Press `Ctrl-A X` to quit QEMU.
 
 ### Real Raspberry Pi 5
 
@@ -88,9 +88,9 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a full annotated tree.
 
 ```
 tiny_os/
-├── arch/       # AArch64 boot assembly, HAL trait definitions
-├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART
-├── kernel/     # Kernel entry point, print macros, panic handler
+├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, HAL traits
+├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, GIC/timer bases
+├── kernel/     # Kernel entry, IRQ dispatch, interactive shell, print/panic
 └── docs/       # Specifications and phase breakdown
 ```
 

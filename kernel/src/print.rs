@@ -1,46 +1,41 @@
-// Kernel print subsystem.
-//
-// Provides a process-global UART writer and the `kprint!` / `kprintln!`
-// macros used throughout the kernel.
-//
-// Phase 1 safety note: We use `UnsafeCell<Option<…>>` with a manual
-// `unsafe impl Sync` because in Phase 1 we are strictly single-core with
-// all interrupts masked (DAIF set by boot.S). No concurrent access is
-// possible, so the invariant is trivially maintained. This will be
-// replaced with a proper spinlock-protected writer in Phase 7 (SMP).
-
 use bsp::PlatformUart;
 use core::cell::UnsafeCell;
 use core::fmt;
 
 struct GlobalWriter(UnsafeCell<Option<PlatformUart>>);
 
-// SAFETY: Phase 1 is single-core with interrupts masked; no concurrent
-// access to the UART writer can occur.
+// SAFETY: Access is guarded by DAIF IRQ masking in `_print`, preventing
+// concurrent access from interrupt handlers on this single core.
 unsafe impl Sync for GlobalWriter {}
 
 static WRITER: GlobalWriter = GlobalWriter(UnsafeCell::new(None));
 
-/// Install the UART writer. Must be called exactly once, from `kmain`,
-/// before any `kprint!` invocation.
 pub fn init(uart: PlatformUart) {
-    // SAFETY: Called once before any concurrent access; single-core Phase 1.
+    // SAFETY: Called once from kmain before any concurrent access.
     unsafe {
         *WRITER.0.get() = Some(uart);
     }
 }
 
-/// Internal: write `fmt::Arguments` to the global UART writer.
-/// Silently drops output if `init` has not been called yet.
 pub fn _print(args: fmt::Arguments) {
     use fmt::Write;
-    // SAFETY: Single-core, interrupts masked in Phase 1.
+
+    // Save DAIF and mask IRQs to prevent reentrant access from ISRs.
+    let daif: u64;
+    unsafe { core::arch::asm!("mrs {}, DAIF", out(reg) daif) };
+    unsafe { core::arch::asm!("msr DAIFSet, #2") };
+
+    // SAFETY: IRQs are masked, so no ISR can reenter this function.
     if let Some(writer) = unsafe { (*WRITER.0.get()).as_mut() } {
         let _ = writer.write_fmt(args);
     }
+
+    // Restore previous IRQ mask state.
+    if daif & (1 << 7) == 0 {
+        unsafe { core::arch::asm!("msr DAIFClr, #2") };
+    }
 }
 
-/// Print without a newline.
 #[macro_export]
 macro_rules! kprint {
     ($($arg:tt)*) => {
@@ -48,7 +43,6 @@ macro_rules! kprint {
     };
 }
 
-/// Print with a trailing newline.
 #[macro_export]
 macro_rules! kprintln {
     ()                => { $crate::kprint!("\n") };

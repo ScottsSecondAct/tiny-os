@@ -6,10 +6,11 @@
 //
 // Sequence:
 //   1. Park all secondary cores (MPIDR_EL1.Aff0 != 0) in a WFE loop.
-//   2. If we entered at EL2, configure HCR_EL2 and eret to EL1h.
+//   2. Drop from EL3→EL1 (secure) or EL2→EL1 depending on entry EL.
 //   3. Set the stack pointer to __stack_top.
 //   4. Zero the .bss section (16-byte aligned stp xzr,xzr stores).
-//   5. Branch to kmain. If kmain ever returns, spin forever.
+//   5. Enable FP/SIMD, install exception vector table (VBAR_EL1).
+//   6. Branch to kmain. If kmain ever returns, spin forever.
 
     .section ".text.boot", "ax"
     .globl _start
@@ -17,12 +18,10 @@
 _start:
     // ---------------------------------------------------------------
     // 1. Park secondary cores.
-    //    MPIDR_EL1[7:0] = Aff0 = CPU index on a single-cluster board.
-    //    Core 0 continues; cores 1-3 spin on WFE.
     // ---------------------------------------------------------------
     mrs     x0, mpidr_el1
     and     x0, x0, #0xFF
-    cbz     x0, .Lprimary       // core 0 → continue
+    cbz     x0, .Lprimary
 
 .Lsecondary_park:
     wfe
@@ -30,67 +29,102 @@ _start:
 
 .Lprimary:
     // ---------------------------------------------------------------
-    // 2. Detect current Exception Level.
-    //    CurrentEL[3:2]: 0b10 = EL2, 0b01 = EL1.
-    //    If we're already in EL1, skip the EL2 → EL1 transition.
+    // 2. Detect current Exception Level and drop to EL1.
     // ---------------------------------------------------------------
     mrs     x0, CurrentEL
     lsr     x0, x0, #2
     and     x0, x0, #3
+    cmp     x0, #3
+    beq     .Lel3_setup
     cmp     x0, #2
-    bne     .Lel1_setup         // not EL2 → already at EL1 (or EL3, ignore)
+    beq     .Lel2_setup
+    b       .Lel1_setup
 
     // ---------------------------------------------------------------
-    // 2a. We're in EL2. Configure HCR_EL2 and eret to EL1h.
+    // EL3 → EL1 (secure). QEMU raspi4b starts at EL3.
     //
-    //  HCR_EL2.RW  (bit 31) = 1 → EL1 runs AArch64
-    //  HCR_EL2.HCD (bit  8) = 1 → disable HVC (optional, keeps it clean)
+    // Stay in secure state (NS=0) so the GIC Group 0 interrupts are
+    // delivered as IRQ. QEMU's GIC-400 emulation doesn't reliably
+    // handle IGROUPR writes for PPIs, so we keep everything Group 0
+    // and access the GIC via the secure aliases.
     // ---------------------------------------------------------------
-    mov     x0, #(1 << 31)      // RW=1: EL1 is AArch64
-    orr     x0, x0, #(1 << 8)  // HCD=1: disable HVC
+.Lel3_setup:
+    // Configure EL2 registers from EL3 so EL1 is AArch64 and timers
+    // are accessible, even though we skip executing at EL2.
+    mov     x0, #(1 << 31)      // HCR_EL2.RW=1: EL1 is AArch64
     msr     hcr_el2, x0
 
-    // SPSR_EL2: DAIF=1111 (all interrupts masked), M=0b0101 (EL1h)
-    // Encoding: bits [9:6]=DAIF=0b1111, bits [3:0]=M=0b0101 → 0x3C5
+    mov     x0, #3
+    msr     cnthctl_el2, x0     // EL1 can access physical timer/counter
+    msr     cntvoff_el2, xzr    // No virtual counter offset
+
+    msr     cptr_el2, xzr       // Don't trap FP/SIMD at EL2
+    msr     cptr_el3, xzr       // Don't trap FP/SIMD at EL3
+
+    // SCR_EL3: RW=1 (lower ELs AArch64), NS=0 (secure), ST=1.
+    // NS=0 keeps lower ELs in secure state so the GIC secure aliases
+    // are used — Group 0 interrupts are acknowledged via GICC_IAR.
+    mov     x0, #(1 << 10)      // RW
+    orr     x0, x0, #(1 << 4)   // ST (secure timer access for EL1)
+    msr     scr_el3, x0
+
+    // SPSR_EL3: DAIF=1111, M=EL1h (0b00101) → 0x3C5
     mov     x0, #0x3C5
-    msr     spsr_el2, x0
+    msr     spsr_el3, x0
 
-    // ELR_EL2: return address = .Lel1_setup
     adr     x0, .Lel1_setup
-    msr     elr_el2, x0
-
-    // Ensure EL2 system register writes are visible before eret
+    msr     elr_el3, x0
     isb
     eret
 
+    // ---------------------------------------------------------------
+    // EL2 → EL1. Real Pi 5 firmware enters here.
+    // ---------------------------------------------------------------
+.Lel2_setup:
+    mov     x0, #(1 << 31)      // HCR_EL2.RW=1: EL1 is AArch64
+    msr     hcr_el2, x0
+
+    mov     x0, #3
+    msr     cnthctl_el2, x0     // EL1 can access CNTP_* and CNTPCT
+    msr     cntvoff_el2, xzr
+    msr     cptr_el2, xzr       // Don't trap FP/SIMD at EL2
+
+    // SPSR_EL2: DAIF=1111, M=EL1h → 0x3C5
+    mov     x0, #0x3C5
+    msr     spsr_el2, x0
+
+    adr     x0, .Lel1_setup
+    msr     elr_el2, x0
+    isb
+    eret
+
+    // ---------------------------------------------------------------
+    // EL1 common setup.
+    // ---------------------------------------------------------------
 .Lel1_setup:
-    // ---------------------------------------------------------------
-    // 3. Set up the stack pointer.
-    //    __stack_top is exported by the linker script and is 16-byte
-    //    aligned. SP_EL1 is selected automatically when in EL1h (M=5).
-    // ---------------------------------------------------------------
     ldr     x0, =__stack_top
     mov     sp, x0
 
-    // ---------------------------------------------------------------
-    // 4. Zero the .bss section.
-    //    __bss_start and __bss_end are exported by the linker script.
-    //    BSS is 16-byte aligned, so we can use stp xzr, xzr safely.
-    // ---------------------------------------------------------------
+    // Zero .bss
     ldr     x1, =__bss_start
     ldr     x2, =__bss_end
-
 .Lbss_zero:
     cmp     x1, x2
     bge     .Lbss_done
     stp     xzr, xzr, [x1], #16
     b       .Lbss_zero
-
 .Lbss_done:
-    // ---------------------------------------------------------------
-    // 5. Jump to kmain. The `bl` saves LR, but kmain is `-> !` so it
-    //    must never return. The fallback WFE loop is a safety net.
-    // ---------------------------------------------------------------
+
+    // Enable FP/SIMD at EL1 (CPACR_EL1.FPEN = 0b11).
+    mov     x0, #(3 << 20)
+    msr     cpacr_el1, x0
+    isb
+
+    // Install exception vector table.
+    ldr     x0, =__vectors
+    msr     vbar_el1, x0
+    isb
+
     bl      kmain
 
 .Lhalt:

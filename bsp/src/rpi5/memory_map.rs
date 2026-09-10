@@ -14,3 +14,9 @@ pub const RP1_BASE: usize = 0x0001_F000_0000;
 
 /// Physical address of RP1 UART0 (PL011-compatible).
 pub const RP1_UART0_BASE: usize = RP1_BASE + 0x0006_C000;
+
+/// GIC-400 Distributor base address.
+pub const GIC_DIST_BASE: usize = 0xFF84_1000;
+
+/// GIC-400 CPU Interface base address.
+pub const GIC_CPU_BASE: usize = 0xFF84_2000;

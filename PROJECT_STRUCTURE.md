@@ -17,56 +17,53 @@ tiny_os/
 │                           #   -Tkernel/link.ld; default target triple
 │
 ├── docs/                   # Specifications (kept as reference)
-│   ├── tiny_os_specification_v1.1.docx
-│   ├── tiny_os_implementation_phases.docx
-│   └── simple_os_scheduler_spec.docx
+│   └── tiny_os_specification_v1.1.md
 │
 ├── arch/                   # Architecture crate — hardware register access & HAL traits
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs          # Crate root; re-exports arch-specific modules
 │       ├── uart.rs         # UartDriver trait definition
+│       ├── irq.rs          # InterruptController trait definition
+│       ├── timer.rs        # Timer trait definition
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
-│           ├── boot.S      # _start: park secondaries, zero BSS, set SP, bl kmain
-│           │               #   Also handles EL2 → EL1 drop if firmware lands in EL2
-│           ├── context.rs  # (Phase 4) Task context save/restore/switch
-│           ├── mmu.rs      # (Phase 3) Translation table setup
-│           ├── gic.rs      # (Phase 2) GIC-400 interrupt controller driver
-│           ├── timer.rs    # (Phase 2) ARM Generic Timer (CNTP_*)
-│           ├── vectors.S   # (Phase 2) Exception vector table
-│           └── smp.rs      # (Phase 7) Secondary core wakeup
+│           ├── boot.S      # _start: park secondaries, EL3→EL1 (secure) or
+│           │               #   EL2→EL1 drop, zero BSS, set SP, CPACR, VBAR, bl kmain
+│           ├── vectors.S   # Exception vector table (2KB aligned, 16 entries),
+│           │               #   TrapFrame save/restore macros, handler stubs
+│           ├── exceptions.rs # TrapFrame struct, IRQ dispatch table, tick counter
+│           ├── gic.rs      # GIC-400 (GICv2) driver: distributor + CPU interface
+│           └── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
+│                           #   CVAL-based acknowledge)
 │
 ├── bsp/                    # Board Support Package crate — concrete HAL implementations
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
 │   └── src/
-│       ├── lib.rs          # Re-exports PlatformUart based on active feature flag
+│       ├── lib.rs          # Re-exports PlatformUart, GIC_DIST_BASE, GIC_CPU_BASE
+│       │                   #   based on active feature flag
 │       ├── rpi5/
 │       │   ├── mod.rs          # BSP root for Raspberry Pi 5
-│       │   ├── memory_map.rs   # RP1_UART0_BASE = 0x1F_0006_C000 (36-bit PCIe window)
-│       │   ├── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
-│       │   ├── rp1_gpio.rs     # (Phase 6) GPIO via RP1
-│       │   ├── emmc2.rs        # (Phase 8) eMMC/SD card via BCM2712 EMMC2
-│       │   └── rp1_eth.rs      # (Phase 10) Gigabit Ethernet via RP1
+│       │   ├── memory_map.rs   # RP1_UART0_BASE = 0x1F_0006_C000 (36-bit PCIe window),
+│       │   │                   #   GIC bases at 0xFF841000 / 0xFF842000
+│       │   └── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
 │       └── qemu_virt/
-│           └── mod.rs          # BCM2837 PL011 UART at 0x3F20_1000 (raspi3b target)
+│           ├── mod.rs          # BSP root for QEMU raspi4b
+│           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases at 0xFF841000 / 0xFF842000
+│           └── uart.rs         # BCM2711 PL011 UART driver
 │
 └── kernel/                 # Kernel binary crate
     ├── Cargo.toml          # Depends on arch + bsp; propagates bsp-* feature flags
     ├── link.ld             # Linker script: .text.boot at 0x80000, then .text,
     │                       #   .rodata, .data, .bss (16-byte aligned), .stack
     └── src/
-        ├── main.rs         # kmain(): init UART, init print, print banner, WFE spin
+        ├── main.rs         # kmain(): init UART/GIC/timer, 250ms tick verify, shell
         ├── panic.rs        # #[panic_handler]: print message + location, WFE halt
         ├── print.rs        # kprint!() / kprintln!() macros via core::fmt::Write
-        ├── sched/          # (Phase 4) Scheduler, TCB, task states
-        ├── sync/           # (Phase 5) Mutex, semaphore, message queue
-        ├── mm/             # (Phase 3) Physical page allocator, heap, VMM
-        ├── fs/             # (Phase 9) VFS, FAT32 driver
-        ├── net/            # (Phase 10) TCP/IP stack, sockets
-        ├── drivers/        # (Phase 6) Driver trait registry
-        ├── shell/          # (Phase 9) Interactive kernel shell
-        └── klog/           # (Phase 6) Structured kernel logging subsystem
+        ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), sync exception
+        │                   #   handler (SVC detection, ESR decoding), unhandled trap
+        └── shell.rs        # Interactive UART shell: help, uptime, ticks, info,
+                            #   svc, reboot
 ```
 
 ## Key Design Constraints
@@ -80,3 +77,12 @@ tiny_os/
 - **Kernel load address** — `0x80000` (RPi firmware convention, enforced by `link.ld`).
 - **BSP feature flags** are mutually exclusive; enabling both causes a compile error
   (duplicate `PlatformUart` definition).
+
+## QEMU Notes
+
+- QEMU `raspi4b` starts at EL3, not EL2 — `boot.S` handles EL3→EL1 (secure, NS=0).
+- The GIC-400 on QEMU doesn't reliably handle IGROUPR writes for PPIs from secure
+  state, so all interrupts are kept as Group 0 (FIQEn=0 delivers them as IRQ).
+- The virtual timer (CNTV, INTID 27) is used instead of the physical timer because
+  CNTP doesn't fire from non-secure EL1 on QEMU's raspi4b.
+- Real Pi 5 firmware enters at EL2 (non-secure) — `boot.S` handles EL2→EL1 directly.
