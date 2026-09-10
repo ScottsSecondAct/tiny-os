@@ -17,6 +17,11 @@
     .type  _start, %function
 _start:
     // ---------------------------------------------------------------
+    // 0. Preserve DTB pointer (firmware passes it in x0).
+    // ---------------------------------------------------------------
+    mov     x19, x0
+
+    // ---------------------------------------------------------------
     // 1. Park secondary cores.
     // ---------------------------------------------------------------
     mrs     x0, mpidr_el1
@@ -114,6 +119,10 @@ _start:
     stp     xzr, xzr, [x1], #16
     b       .Lbss_zero
 .Lbss_done:
+
+    // Store DTB pointer (preserved in x19 since _start).
+    ldr     x0, =DTB_PTR
+    str     x19, [x0]
 
     // Enable FP/SIMD at EL1 (CPACR_EL1.FPEN = 0b11).
     mov     x0, #(3 << 20)

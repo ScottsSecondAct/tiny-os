@@ -2,5 +2,6 @@
 
 pub mod aarch64;
 pub mod irq;
+pub mod mm;
 pub mod timer;
 pub mod uart;

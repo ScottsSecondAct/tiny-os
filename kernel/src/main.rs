@@ -5,6 +5,7 @@ mod panic;
 pub mod print;
 
 mod exceptions;
+mod mm;
 mod shell;
 
 use arch::aarch64::{exceptions as exc, gic, timer};
@@ -17,7 +18,7 @@ pub extern "C" fn kmain() -> ! {
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os Phase 2 boot");
+    kprintln!("tiny_os Phase 3 boot");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
@@ -27,6 +28,8 @@ pub extern "C" fn kmain() -> ! {
     timer::init(1000);
 
     unsafe { core::arch::asm!("msr daifclr, #2") };
+
+    mm::init();
 
     let start = timer::read_counter();
     let freq = timer::frequency();

@@ -1,5 +1,6 @@
-use crate::{kprint, kprintln};
+use crate::{kprint, kprintln, mm};
 use arch::aarch64::exceptions;
+use arch::aarch64::mmu;
 use arch::aarch64::timer;
 use arch::uart::UartDriver;
 
@@ -86,7 +87,7 @@ fn uart_fr_addr() -> usize {
 fn dispatch(cmd: &str) {
     match cmd.trim() {
         "help" => {
-            kprintln!("commands: help, uptime, ticks, info, svc, reboot");
+            kprintln!("commands: help, uptime, ticks, info, mem, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
@@ -103,6 +104,13 @@ fn dispatch(cmd: &str) {
             kprintln!("timer freq:  {} Hz", freq);
             kprintln!("tick rate:   1000 Hz");
             kprintln!("tick count:  {}", exceptions::tick_count());
+        }
+        "mem" => {
+            let (total, used, free) = mm::page_stats();
+            kprintln!("pages:  {} total, {} used, {} free ({} KB free)", total, used, free, free * 4);
+            let (htotal, hused, hfree) = mm::heap_stats();
+            kprintln!("heap:   {} total, {} used, {} free", htotal, hused, hfree);
+            kprintln!("MMU:    {}", if mmu::enabled() { "on" } else { "off" });
         }
         "svc" => {
             unsafe { core::arch::asm!("svc #42") };
