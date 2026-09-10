@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 2 complete** — exception vectors, GIC-400 interrupt controller, ARM Generic Timer producing a 1 kHz system tick, and an interactive UART shell with uptime/ticks/info commands. Timer accuracy verified at 250 ticks in 250 ms on QEMU.
+**Phase 3 complete** — MMU with identity-mapped 2MB blocks and caches enabled, bitmap page frame allocator (up to 4GB), linked-list heap allocator, minimal DTB parser. Built on Phase 2's GIC-400 interrupt controller, ARM Generic Timer (1 kHz tick), and interactive UART shell.
 
 ## Target Hardware
 
@@ -88,9 +88,9 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a full annotated tree.
 
 ```
 tiny_os/
-├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, HAL traits
-├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, GIC/timer bases
-├── kernel/     # Kernel entry, IRQ dispatch, interactive shell, print/panic
+├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, HAL traits
+├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
+├── kernel/     # Kernel entry, IRQ dispatch, memory management, shell, print/panic
 └── docs/       # Specifications and phase breakdown
 ```
 

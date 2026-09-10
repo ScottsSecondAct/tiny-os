@@ -38,18 +38,22 @@ Wire up the GIC-400 interrupt controller and the ARM Generic Timer to produce a 
 
 ---
 
-## Phase 3 — Memory Management
+## Phase 3 — Memory Management ✅
 
-Physical memory discovery from the device tree, page frame allocator, and virtual memory via AArch64 translation tables.
+Physical memory discovery from the device tree, page frame allocator, MMU identity mapping, and heap allocator.
 
 **Deliverables:**
-- [ ] Device tree (DTB) parser for memory regions and peripheral addresses
-- [ ] Physical page frame allocator (`PageAllocator` trait) — bitmap or buddy system
-- [ ] AArch64 translation table setup (4 KB pages, 48-bit VA)
-- [ ] `AddressSpace` HAL trait
-- [ ] Identity mapping for kernel, MMIO device regions mapped as device memory
-- [ ] `kmalloc` / `kfree` heap allocator (slab or linked-list)
-- [ ] Memory stats via `kprintln!`
+- [x] Minimal FDT (DTB) parser for /memory node RAM discovery (falls back to BSP defaults)
+- [x] Boot.S preserves firmware DTB pointer (x19 → DTB_PTR global)
+- [x] Bitmap page frame allocator: 1 bit per 4KB page, up to 4GB (1M pages)
+- [x] `PageAllocator` HAL trait in `arch::mm`
+- [x] AArch64 MMU: 4KB granule, 2MB block descriptors, 48-bit VA, identity mapping
+- [x] MAIR (Device-nGnRnE / Normal WB / Normal NC), TCR (40-bit IPS, EPD1), SCTLR (MMU + caches)
+- [x] RAM mapped as Normal WB Cacheable, MMIO regions as Device-nGnRnE
+- [x] BSP memory region constants for both QEMU (1GB RAM, peripherals) and Pi 5 (4GB RAM, peripherals + RP1)
+- [x] Linked-list heap allocator: `kmalloc`/`kfree`, seeded with 64 PMM pages (256KB)
+- [x] Shell `mem` command: page stats (total/used/free), heap stats, MMU on/off
+- [x] Verified on QEMU: 262K pages, MMU+caches on, timer accuracy maintained (252 ticks/250ms)
 
 ---
 

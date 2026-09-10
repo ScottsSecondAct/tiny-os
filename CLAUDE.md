@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 2: Interrupts & Timer** — complete. Exception vector table, GIC-400 driver, ARM Generic Timer producing 1 kHz system tick, interactive shell with uptime/ticks/info/svc commands. Next up: Phase 3 (Memory Management).
+**Phase 3: Memory Management** — complete. Bitmap page frame allocator, MMU with identity-mapped 2MB blocks, linked-list heap allocator, minimal DTB parser. Next up: Phase 4 (Multitasking & Context Switch).
 
 ## Target Hardware
 
@@ -52,8 +52,7 @@ All hardware-specific code is isolated behind Rust traits so porting requires im
 | `UartDriver`         | `arch::uart`     | 1     | Serial I/O                           |
 | `InterruptController`| `arch::irq`      | 2     | GIC / NVIC abstraction               |
 | `Timer`              | `arch::timer`    | 2     | Periodic tick, monotonic clock        |
-| `PageAllocator`      | `mm::alloc`      | 3     | Physical page frame management        |
-| `AddressSpace`       | `arch::mmu`      | 3     | Virtual memory / translation tables   |
+| `PageAllocator`      | `arch::mm`       | 3     | Physical page frame management        |
 | `Context`            | `arch::context`  | 4     | Task context save/restore/switch      |
 | `SmpBoot`            | `arch::smp`      | 7     | Multi-core startup                   |
 | `DmaEngine`          | `arch::dma`      | 8     | DMA transfers                        |
@@ -78,7 +77,12 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   └── shell.rs        # Interactive UART shell (help, uptime, ticks, info, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, svc, reboot)
+│   │   └── mm/             # Memory management subsystem
+│   │       ├── mod.rs      # MM init: RAM discovery, PMM, MMU enable, heap seeding
+│   │       ├── dtb.rs      # Minimal FDT parser for /memory node
+│   │       ├── pmm.rs      # Bitmap page frame allocator (4KB pages, up to 4GB)
+│   │       └── heap.rs     # Linked-list heap allocator (kmalloc/kfree)
 │   └── link.ld             # Linker script
 ├── arch/                   # Architecture-specific crate
 │   ├── Cargo.toml
@@ -87,13 +91,15 @@ tiny_os/
 │       ├── uart.rs         # UartDriver trait
 │       ├── irq.rs          # InterruptController trait
 │       ├── timer.rs        # Timer trait
+│       ├── mm.rs           # PageAllocator trait
 │       └── aarch64/
 │           ├── mod.rs
-│           ├── boot.S      # _start entry, EL3→EL1 drop, secondary core parking
+│           ├── boot.S      # _start entry, DTB save, EL3→EL1 drop, secondary core parking
 │           ├── vectors.S   # Exception vector table (2KB aligned, 16 entries)
 │           ├── exceptions.rs # TrapFrame, IRQ dispatch table, tick counter
 │           ├── gic.rs      # GIC-400 driver (GICv2)
-│           └── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick)
+│           ├── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick)
+│           └── mmu.rs      # MMU setup: identity mapping, 2MB blocks, MAIR/TCR/SCTLR
 └── bsp/                    # Board Support Packages
     ├── Cargo.toml
     └── src/
@@ -101,11 +107,11 @@ tiny_os/
         ├── rpi5/
         │   ├── mod.rs
         │   ├── rp1_uart.rs
-        │   └── memory_map.rs
+        │   └── memory_map.rs   # RP1 UART, GIC, RAM, peripheral + RP1 MMIO regions
         └── qemu_virt/
             ├── mod.rs
             ├── uart.rs     # BCM2711 PL011 UART at 0xFE20_1000
-            └── memory_map.rs
+            └── memory_map.rs   # UART, GIC, RAM, peripheral MMIO regions
 ```
 
 ## Scheduler Design (for reference in Phase 4+)
@@ -155,12 +161,28 @@ tiny_os/
 - [x] Boot: EL3→EL1 (secure) on QEMU, EL2→EL1 on real Pi 5
 - [x] Verified: 250 ticks in 250ms (±0.4%), uptime accurate to wall-clock
 
-## Phase 3 Deliverables Checklist (next)
+### Phase 3 — Memory Management ✅
 
-- [ ] Device tree (DTB) parser for memory regions and peripheral addresses
-- [ ] Physical page frame allocator (`PageAllocator` trait) — bitmap or buddy system
-- [ ] AArch64 translation table setup (4 KB pages, 48-bit VA)
-- [ ] `AddressSpace` HAL trait
-- [ ] Identity mapping for kernel, MMIO device regions mapped as device memory
-- [ ] `kmalloc` / `kfree` heap allocator (slab or linked-list)
-- [ ] Memory stats via `kprintln!`
+- [x] Minimal FDT (DTB) parser for /memory node RAM discovery
+- [x] Boot.S preserves firmware DTB pointer (x19 → DTB_PTR global)
+- [x] Physical page frame allocator: bitmap-based, 4KB pages, up to 4GB
+- [x] `PageAllocator` HAL trait in `arch::mm`
+- [x] AArch64 MMU setup: 4KB granule, 2MB block descriptors, 48-bit VA
+- [x] Identity mapping for RAM (Normal WB Cacheable) and MMIO (Device-nGnRnE)
+- [x] MAIR (3 indices), TCR (40-bit IPS, EPD1), SCTLR (MMU + D-cache + I-cache)
+- [x] Linked-list heap allocator with `kmalloc`/`kfree`, seeded from PMM pages (256KB)
+- [x] BSP memory region constants (RAM defaults, peripheral MMIO, RP1 window)
+- [x] Shell `mem` command: page stats, heap stats, MMU status
+- [x] Verified on QEMU: 262K pages, MMU+caches on, timer accuracy maintained
+
+## Phase 4 Deliverables Checklist (next)
+
+- [ ] Task Control Block (TCB) with saved context, priority, state, stack, timing stats
+- [ ] Five task states: Ready, Running, Blocked, Suspended, Dormant
+- [ ] AArch64 context switch: save/restore general-purpose + FP/SIMD registers
+- [ ] `Context` HAL trait
+- [ ] 256-level fixed-priority scheduler with O(1) dispatch (bitmap + CLZ)
+- [ ] Round-robin among equal-priority tasks via per-level FIFO queues
+- [ ] Preemption from timer tick ISR
+- [ ] `task_create`, `task_delete`, `task_suspend`, `task_resume` API
+- [ ] Critical sections: DAIF masking with nesting count

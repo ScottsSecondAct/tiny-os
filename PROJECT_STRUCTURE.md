@@ -26,16 +26,21 @@ tiny_os/
 │       ├── uart.rs         # UartDriver trait definition
 │       ├── irq.rs          # InterruptController trait definition
 │       ├── timer.rs        # Timer trait definition
+│       ├── mm.rs           # PageAllocator trait definition
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
-│           ├── boot.S      # _start: park secondaries, EL3→EL1 (secure) or
-│           │               #   EL2→EL1 drop, zero BSS, set SP, CPACR, VBAR, bl kmain
+│           ├── boot.S      # _start: save DTB ptr, park secondaries, EL3→EL1 (secure)
+│           │               #   or EL2→EL1 drop, zero BSS, store DTB_PTR,
+│           │               #   set SP, CPACR, VBAR, bl kmain
 │           ├── vectors.S   # Exception vector table (2KB aligned, 16 entries),
 │           │               #   TrapFrame save/restore macros, handler stubs
 │           ├── exceptions.rs # TrapFrame struct, IRQ dispatch table, tick counter
 │           ├── gic.rs      # GIC-400 (GICv2) driver: distributor + CPU interface
-│           └── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
-│                           #   CVAL-based acknowledge)
+│           ├── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
+│           │               #   CVAL-based acknowledge)
+│           └── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
+│                           #   mapping with 2MB blocks, MAIR/TCR/SCTLR config,
+│                           #   Normal WB Cacheable (RAM) + Device-nGnRnE (MMIO)
 │
 ├── bsp/                    # Board Support Package crate — concrete HAL implementations
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
@@ -45,11 +50,12 @@ tiny_os/
 │       ├── rpi5/
 │       │   ├── mod.rs          # BSP root for Raspberry Pi 5
 │       │   ├── memory_map.rs   # RP1_UART0_BASE = 0x1F_0006_C000 (36-bit PCIe window),
-│       │   │                   #   GIC bases at 0xFF841000 / 0xFF842000
+│       │   │                   #   GIC bases, RAM default (4GB), peripheral + RP1 MMIO regions
 │       │   └── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
 │       └── qemu_virt/
 │           ├── mod.rs          # BSP root for QEMU raspi4b
-│           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases at 0xFF841000 / 0xFF842000
+│           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases, RAM default (1GB),
+│           │                   #   peripheral MMIO region
 │           └── uart.rs         # BCM2711 PL011 UART driver
 │
 └── kernel/                 # Kernel binary crate
@@ -57,13 +63,18 @@ tiny_os/
     ├── link.ld             # Linker script: .text.boot at 0x80000, then .text,
     │                       #   .rodata, .data, .bss (16-byte aligned), .stack
     └── src/
-        ├── main.rs         # kmain(): init UART/GIC/timer, 250ms tick verify, shell
+        ├── main.rs         # kmain(): init UART/GIC/timer, mm::init(), tick verify, shell
         ├── panic.rs        # #[panic_handler]: print message + location, WFE halt
         ├── print.rs        # kprint!() / kprintln!() macros via core::fmt::Write
         ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), sync exception
         │                   #   handler (SVC detection, ESR decoding), unhandled trap
-        └── shell.rs        # Interactive UART shell: help, uptime, ticks, info,
-                            #   svc, reboot
+        ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
+        │                   #   svc, reboot
+        └── mm/             # Memory management subsystem
+            ├── mod.rs      # MM init: DTB RAM discovery → PMM → MMU enable → heap seed
+            ├── dtb.rs      # Minimal FDT parser: extracts /memory node reg property
+            ├── pmm.rs      # Bitmap page frame allocator: 1 bit per 4KB page, up to 4GB
+            └── heap.rs     # Linked-list heap allocator: kmalloc/kfree, global stats
 ```
 
 ## Key Design Constraints
