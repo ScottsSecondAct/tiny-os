@@ -8,7 +8,7 @@
 #   make clean    — cargo clean
 
 CARGO          := cargo
-OBJCOPY        := cargo objcopy
+OBJCOPY        := rust-objcopy
 QEMU           := qemu-system-aarch64
 
 RELEASE_FLAGS  := --release
@@ -34,12 +34,12 @@ build:
 
 ## Produce kernel8.img flat binary for SD card boot.
 img: build
-	$(OBJCOPY) $(RELEASE_FLAGS) -- -O binary $(KERNEL_IMG)
+	$(OBJCOPY) -O binary $(KERNEL_ELF) $(KERNEL_IMG)
 	@echo "  -> $(KERNEL_IMG)"
 
 ## Verify _start symbol address (should be 0x80000).
 check-entry:
-	aarch64-linux-gnu-nm $(KERNEL_ELF) | grep _start
+	rust-nm $(KERNEL_ELF) | grep _start
 
 clean:
 	$(CARGO) clean
