@@ -198,8 +198,10 @@ Zero-copy network stack with loopback device for QEMU testing, BSD-style sockets
 - [x] `.user.text` linker section at 0x200000 with EL0-accessible permissions
 - [x] User demo task running at EL0, printing via syscalls
 - [x] EL0 fault handling: register dump + task termination, DISCARD_SP pattern for safe context switch
-- [x] Shell commands: `ping <ip>`, `netstat`, `ifconfig`
-- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, no faults, stable operation
+- [x] VideoCore mailbox driver (`arch::aarch64::mailbox`): property tag interface, SoC temperature query (tag 0x00030006)
+- [x] CPU temperature monitor (`kernel::sensor`): 5s readings, 60-entry ring buffer, min/max/avg stats, /TEMP.LOG every 60s, 80°C alert
+- [x] Shell commands: `ping <ip>`, `netstat`, `ifconfig`, `temp` (current/stats/history)
+- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature sensor, no faults, stable operation
 - [x] Both BSPs (QEMU and RPi5) build cleanly
 
 ---

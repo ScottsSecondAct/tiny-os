@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit). Shell commands: `ping`, `netstat`, `ifconfig`. User demo task runs at EL0 printing via syscalls. Next up: Phase 11 (Safety Certification).
+**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit). CPU temperature monitor via VideoCore mailbox (property tag 0x00030006): periodic sensor readings, ring buffer history, filesystem logging, shell `temp` command. Shell commands: `ping`, `netstat`, `ifconfig`, `temp`. User demo task runs at EL0 printing via syscalls. Next up: Phase 11 (Safety Certification).
 
 ## Target Hardware
 
@@ -78,7 +78,8 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, yield, svc, reboot)
+│   │   ├── sensor.rs       # CPU temperature monitor: 5s readings, 60-entry ring buffer, stats, /TEMP.LOG
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
 │   │   ├── syscall.rs      # Syscall dispatch: SYS_YIELD, SYS_DELAY, SYS_WRITE, SYS_TASK_ID, SYS_UPTIME, SYS_EXIT
 │   │   ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs (.user.text section)
@@ -142,6 +143,7 @@ tiny_os/
 │           ├── mmu.rs      # MMU: identity mapping, 2MB blocks, W^X, secondary core init,
 │           │               #   per-task TTBR0 page tables (L3 4KB), ASID, switch_ttbr0
 │           ├── smp.rs      # AArch64 SMP: spin-table wakeup, core_id, start_core
+│           ├── mailbox.rs  # VideoCore mailbox driver: property tags, SoC temperature query
 │           ├── emmc2.rs    # SDHCI/EMMC2 SD card driver: PIO mode, card init, read/write
 │           ├── context.rs  # Aarch64Context: new_context (fake frame), new_user_context, switch wrapper
 │           └── context_switch.S  # Context switch (x19-x30), task_trampoline (sched lock release),
@@ -149,15 +151,15 @@ tiny_os/
 ├── bsp/                    # Board Support Packages
 │   ├── Cargo.toml
 │   └── src/
-│       ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases)
+│       ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases, MAILBOX_BASE)
 │       ├── rpi5/
 │       │   ├── mod.rs
 │       │   ├── rp1_uart.rs
-│       │   └── memory_map.rs   # RP1 UART, GIC, RAM, peripheral + RP1 MMIO regions
+│       │   └── memory_map.rs   # RP1 UART, GIC, RAM, MAILBOX_BASE, peripheral + RP1 MMIO regions
 │       └── qemu_virt/
 │           ├── mod.rs
 │           ├── uart.rs     # BCM2711 PL011 UART at 0xFE20_1000
-│           └── memory_map.rs   # UART, GIC, RAM, peripheral MMIO regions
+│           └── memory_map.rs   # UART, GIC, RAM, MAILBOX_BASE, peripheral MMIO regions
 └── tests/                  # Test infrastructure
     ├── host/               # Host-side unit tests (cargo test, runs natively)
     │   ├── Cargo.toml      # Separate crate; built with --target x86_64-pc-windows-msvc
@@ -373,8 +375,10 @@ make test                     # runs test-host then test-qemu
 - [x] User demo task: prints via sys_write, delays via sys_delay, runs indefinitely at EL0
 - [x] EL0 fault handling: data/prefetch abort from EL0 logs registers and terminates task
 - [x] DISCARD_SP pattern for task_terminate context switch (avoids cascading faults)
-- [x] Shell commands: `ping <ip>`, `netstat` (ARP/socket/config), `ifconfig` (IP/MAC/link)
-- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, no faults, stable operation
+- [x] VideoCore mailbox driver (`arch::aarch64::mailbox`): property tag interface, SoC temperature query (tag 0x00030006)
+- [x] CPU temperature monitor (`kernel::sensor`): 5s readings, 60-entry ring buffer, min/max/avg stats, /TEMP.LOG every 60s, 80°C alert threshold
+- [x] Shell commands: `ping <ip>`, `netstat` (ARP/socket/config), `ifconfig` (IP/MAC/link), `temp` (current/stats/history)
+- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature sensor, no faults, stable operation
 - [x] Both BSPs (QEMU and RPi5) build cleanly
 
 ## Phase 11 Deliverables Checklist (next)

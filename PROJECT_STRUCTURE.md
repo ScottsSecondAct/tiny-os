@@ -49,6 +49,8 @@ tiny_os/
 │           ├── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
 │           │               #   CVAL-based acknowledge, secondary core init)
 │           ├── smp.rs      # AArch64 SMP: spin-table wakeup via SEV, core_id()
+│           ├── mailbox.rs  # VideoCore mailbox driver: property tag interface,
+│           │               #   SoC temperature query (tag 0x00030006)
 │           ├── emmc2.rs    # SDHCI/EMMC2 SD card driver: PIO mode, card
 │           │               #   init (CMD0/8/ACMD41/2/3/9/7), CSD parsing
 │           ├── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
@@ -64,17 +66,17 @@ tiny_os/
 ├── bsp/                    # Board Support Package crate — concrete HAL implementations
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
 │   └── src/
-│       ├── lib.rs          # Re-exports PlatformUart, GIC_DIST_BASE, GIC_CPU_BASE
-│       │                   #   based on active feature flag
+│       ├── lib.rs          # Re-exports PlatformUart, GIC_DIST_BASE, GIC_CPU_BASE,
+│       │                   #   MAILBOX_BASE based on active feature flag
 │       ├── rpi5/
 │       │   ├── mod.rs          # BSP root for Raspberry Pi 5
 │       │   ├── memory_map.rs   # RP1_UART0_BASE = 0x1F_0006_C000 (36-bit PCIe window),
-│       │   │                   #   GIC bases, EMMC2_BASE, RAM default (4GB), peripheral + RP1 MMIO regions
+│       │   │                   #   GIC bases, MAILBOX_BASE, EMMC2_BASE, RAM default (4GB), peripheral + RP1 MMIO regions
 │       │   └── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
 │       └── qemu_virt/
 │           ├── mod.rs          # BSP root for QEMU raspi4b
-│           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases, EMMC2_BASE, RAM default (1GB),
-│           │                   #   peripheral MMIO region
+│           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases, MAILBOX_BASE, EMMC2_BASE,
+│           │                   #   RAM default (1GB), peripheral MMIO region
 │           └── uart.rs         # BCM2711 PL011 UART driver
 │
 └── kernel/                 # Kernel binary crate
@@ -92,7 +94,9 @@ tiny_os/
         │                   #   unhandled trap
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
         │                   #   tasks, smp, log, health, sd, sdread, ls, cat, hexdump,
-        │                   #   touch, write, ping, netstat, ifconfig, yield, svc, reboot
+        │                   #   touch, write, ping, netstat, ifconfig, temp, yield, svc, reboot
+        ├── sensor.rs       # CPU temperature monitor: 5s readings via VideoCore mailbox,
+        │                   #   60-entry ring buffer, min/max/avg stats, /TEMP.LOG, 80°C alert
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
         ├── syscall.rs      # Syscall dispatch: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2),
