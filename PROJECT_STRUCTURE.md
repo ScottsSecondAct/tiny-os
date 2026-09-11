@@ -23,9 +23,15 @@ tiny_os/
 │   │                                   #   certification: WCET, MC/DC, health monitor,
 │   │                                   #   watchdog, mixed-criticality, traceability
 │   ├── API_REFERENCE.md    # Complete API reference: shell, syscalls, scheduler,
-│   │                       #   sync, filesystem, network, memory, HAL traits
-│   └── USER_APP_GUIDE.md   # Developer's guide for user-space EL0 applications:
-│                           #   syscall interface, static/dynamic deployment, constraints
+│   │                       #   sync, filesystem, network, security, memory, HAL traits
+│   ├── USER_APP_GUIDE.md   # Developer's guide for user-space EL0 applications:
+│   │                       #   syscall interface, static/dynamic deployment, constraints
+│   └── traceability.csv    # Requirements traceability matrix: 86 requirements across
+│                           #   18 categories (REQ-CFG, REQ-POOL, REQ-SAFE, REQ-HOOK,
+│                           #   REQ-HEALTH, REQ-SHUTDOWN, REQ-CRIT, REQ-WCET, REQ-BUDGET,
+│                           #   REQ-SCHED, REQ-SEC-FW, REQ-SEC-CRYPTO, REQ-SEC-AUTH,
+│                           #   REQ-SEC-CAP, REQ-SEC-INT, REQ-SEC-AUDIT, REQ-SEC-JTAG,
+│                           #   REQ-SEC-HEALTH)
 │
 ├── examples/               # User-space applications (run at EL0 via syscalls)
 │   ├── temp_monitor/
@@ -115,29 +121,55 @@ tiny_os/
         │                   #   unhandled trap
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
         │                   #   tasks, smp, log, health, sd, sdread, ls, cat, hexdump,
-        │                   #   touch, write, ping, netstat, ifconfig, temp, exec [dynamic-load],
-        │                   #   yield, svc, reboot
+        │                   #   touch, write, ping, netstat, ifconfig, temp, firewall,
+        │                   #   integrity, audit, exec [dynamic-load], faulttest, wcet,
+        │                   #   yield, svc, reboot. SHA-256 auth with lockout (cfg-gated)
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
         ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE) and
         │                   #   subsystem multiplexed (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C,
-        │                   #   SYS_GPIO) with X0=operation, X1-X3=args
+        │                   #   SYS_GPIO) with X0=operation, X1-X3=args. Per-task capability
+        │                   #   enforcement: cap_for_syscall() check before dispatch, E_PERM
+        │                   #   on denial with audit logging
         ├── periph.rs       # Peripheral driver instances (SPI/I2C/GPIO): cfg-gated
         │                   #   RP1 drivers on Pi 5, stubs on QEMU
         ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs,
         │                   #   all code in .user.text section (EL0-accessible)
         ├── loader.rs       # [dynamic-load] ELF64 PIE loader: parse headers, load
         │                   #   PT_LOAD segments, apply relocations, create user tasks
+        ├── os_cfg.rs       # Centralized OS_CFG_* constants with compile-time assertions,
+        │                   #   security config (firewall, auth, debug lockdown)
+        ├── hooks.rs        # 14 os_hook_* functions with default behaviors (spec 11.2)
+        ├── shutdown.rs     # Structured shutdown: diag save, fault log, hook, reboot/halt
+        ├── criticality.rs  # Criticality mode switch: suspend/restore lower-priority tasks
+        ├── wcet.rs         # WCET measurement harness: PMU cycle counter, min/max/avg
+        ├── sched_analysis.rs # RMA utilization check + Response-Time Analysis with PIP
+        ├── fault_inject.rs # Fault injection test suite: 8 tests for safety certification
+        ├── crypto/         # Cryptographic primitives subsystem
+        │   ├── mod.rs      # Module declarations (sha256, hmac, crc32)
+        │   ├── sha256.rs   # SHA-256 (FIPS 180-4): runtime hash() + const fn const_hash()
+        │   ├── hmac.rs     # HMAC-SHA256 (RFC 2104): constant-time comparison
+        │   └── crc32.rs    # CRC32 with precomputed 256-entry lookup table
+        ├── integrity.rs    # Runtime code integrity: CRC32 of .text at boot, periodic
+        │                   #   re-verification by health monitor, boot_crc/verify API
+        ├── audit.rs        # Security audit log: 64-entry ring buffer, 10 event types
+        │                   #   (Boot/Shutdown/Auth/Firewall/Capability/Integrity/Task),
+        │                   #   per-entry tick/core/task, FAT32 persistence (/audit.log)
+        ├── jtag.rs         # JTAG/debug lockdown: OSLAR_EL1 debug register lock,
+        │                   #   GPIO 22-27 reconfiguration on Pi 5 (safety-critical mode)
         ├── net/            # Network stack subsystem
         │   ├── mod.rs      # Network init, RX dispatch loop, net_task, IP/MAC config
         │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType demux)
         │   ├── arp.rs      # ARP cache (16 entries), request/reply handling
-        │   ├── ipv4.rs     # IPv4 parse/build (20-byte header), internet checksum
+        │   ├── ipv4.rs     # IPv4 parse/build (20-byte header), internet checksum,
+        │   │               #   firewall check before protocol demux
         │   ├── icmp.rs     # ICMP echo request/reply, ping RTT statistics
         │   ├── udp.rs      # UDP parse/build (8-byte header), port table (8 entries)
         │   ├── tcp.rs      # Minimal TCP: client SYN/ACK/FIN state machine (4 connections)
         │   ├── socket.rs   # BSD socket API: socket/bind/connect/sendto/recvfrom/close
-        │   └── loopback.rs # Loopback NetDevice for QEMU (swaps src/dst, ICMP req→reply)
+        │   ├── loopback.rs # Loopback NetDevice for QEMU (swaps src/dst, ICMP req→reply)
+        │   └── firewall.rs # Allowlist firewall: 16-rule table, default-deny when enabled,
+        │                   #   src IP/mask + dst port + protocol matching, pass/drop counters
         ├── fs/             # Filesystem subsystem
         │   ├── mod.rs      # VFS layer: fd table (16 entries), open/read/write/close,
         │   │               #   readdir API, FsError enum, DirEntry type
@@ -154,13 +186,16 @@ tiny_os/
         │                   #   queue with spinlock, per-core current task, per-core
         │                   #   idle tasks, IPI-triggered reschedule, budget enforcement,
         │                   #   criticality, stack watermarks, CPU utilization, TTBR0 swap,
-        │                   #   task_create_user, task_terminate with DISCARD_SP
+        │                   #   task_create_user, task_terminate with DISCARD_SP, per-task
+        │                   #   capability bitmask (CAP_ALL/CAP_USER_DEFAULT)
         ├── klog.rs         # Ring-buffer log subsystem: 5 levels (ERROR..TRACE),
         │                   #   timestamps, module tags, 64-entry buffer, BufWriter formatter
         ├── watchdog.rs     # Software watchdog: tick-based counter with configurable timeout,
         │                   #   auto-kick task at priority 0 ensures scheduler liveness
-        ├── health.rs       # Health monitor task (priority 1): periodic stack watermark
-        │                   #   scanning, CPU utilization checks, watchdog status, klog output
+        ├── health.rs       # Health monitor task (priority 1): 8 periodic checks — stack
+        │                   #   watermarks, CPU utilization, watchdog, ready queue integrity,
+        │                   #   mutex ownership, tick monotonicity, pool accounting, code
+        │                   #   integrity (CRC32 verification of .text section)
         ├── drivers.rs      # Driver trait (name/init/status) with 16-slot static registry
         ├── sync/           # Synchronization primitives subsystem
         │   ├── mod.rs      # WaitQueue: priority-sorted waiter array, lazy stale cleanup
@@ -173,24 +208,33 @@ tiny_os/
             ├── mod.rs      # MM init: DTB RAM discovery → PMM → MMU enable → heap seed → DMA pool
             ├── dtb.rs      # Minimal FDT parser: extracts /memory node reg property
             ├── pmm.rs      # Bitmap page frame allocator: 1 bit per 4KB page, up to 4GB
-            └── heap.rs     # Linked-list heap allocator: kmalloc/kfree, global stats
+            ├── heap.rs     # Linked-list heap allocator: kmalloc/kfree, global stats
+            │               #   (disabled in safety-critical mode)
+            └── pool.rs     # Fixed-size memory pool allocator: O(1) alloc/free via
+                            #   spinlock-protected free-list, up to 16 pools, registry
 
 tests/                      # Two-tier test infrastructure
 ├── host/                   # Host-side unit tests (runs natively, not on bare-metal target)
 │   ├── Cargo.toml          # Separate std crate; requires --target x86_64-pc-windows-msvc
 │   └── src/
-│       ├── lib.rs          # Crate root: declares ipv4, ethernet, mbr test modules
+│       ├── lib.rs          # Crate root: declares ipv4, ethernet, mbr, sha256, crc32
 │       ├── ipv4.rs         # IPv4 checksum + header parsing (12 tests): RFC 1071,
 │       │                   #   corruption detection, protocol parsing, edge cases
 │       ├── ethernet.rs     # Ethernet frame parsing (7 tests): ethertype demux,
 │       │                   #   header validation, broadcast detection
-│       └── mbr.rs          # MBR partition table parsing (7 tests): FAT32/Linux/swap,
-│                           #   signature validation, multi-partition, size calculation
+│       ├── mbr.rs          # MBR partition table parsing (7 tests): FAT32/Linux/swap,
+│       │                   #   signature validation, multi-partition, size calculation
+│       ├── sha256.rs       # SHA-256 + HMAC-SHA256 (10 tests): NIST vectors (empty,
+│       │                   #   abc, 448-bit, long), multi-update, RFC 4231 HMAC,
+│       │                   #   constant-time verify correct/wrong
+│       └── crc32.rs        # CRC32 (6 tests): empty, check value 0xCBF43926, hello,
+│                           #   incremental, different inputs, single byte
 └── qemu/
     └── run_tests.ps1       # QEMU integration test runner: builds kernel, boots on
-                            #   raspi4b with 15s timeout, checks 13 serial output
+                            #   raspi4b with 15s timeout, checks 15 serial output
                             #   patterns (banner, MMU, timer, scheduler, SMP×3,
-                            #   network, filesystem, user mode, shell, no panic)
+                            #   network, filesystem, user mode, code integrity,
+                            #   audit log, shell, no panic)
 ```
 
 ## Key Design Constraints

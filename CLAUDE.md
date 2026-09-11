@@ -447,7 +447,7 @@ make test                     # runs test-host then test-qemu
 - [x] WCET measurement harness: PMU cycle counter (PMCCNTR_EL0), WcetRecord with min/max/avg/count, 32 slots, WCET bound constants
 - [x] Schedulability analysis: RMA utilization check with precomputed Liu & Layland bounds, iterative Response-Time Analysis with PIP blocking
 - [x] Fault injection test suite: 8 tests (pool exhaust/double-free/bad-ptr, budget overrun, health hooks, criticality switch, diag region, hook invocation)
-- [x] Requirements traceability matrix: 56 requirements in docs/traceability.csv (REQ-CFG, REQ-POOL, REQ-SAFE, REQ-HOOK, REQ-HEALTH, REQ-SHUTDOWN, REQ-CRIT, REQ-WCET, REQ-BUDGET, REQ-SCHED)
+- [x] Requirements traceability matrix: 86 requirements in docs/traceability.csv (REQ-CFG, REQ-POOL, REQ-SAFE, REQ-HOOK, REQ-HEALTH, REQ-SHUTDOWN, REQ-CRIT, REQ-WCET, REQ-BUDGET, REQ-SCHED, REQ-SEC-FW, REQ-SEC-CRYPTO, REQ-SEC-AUTH, REQ-SEC-CAP, REQ-SEC-INT, REQ-SEC-AUDIT, REQ-SEC-JTAG, REQ-SEC-HEALTH)
 - [x] Shell commands: `faulttest` (run fault injection suite), `wcet` (dump WCET measurements)
 - [x] All 6 BSP×feature configurations build cleanly, all 28 host tests pass
 

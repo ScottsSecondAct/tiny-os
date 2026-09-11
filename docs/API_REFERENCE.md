@@ -20,6 +20,7 @@ Complete reference for all kernel APIs, syscalls, shell commands, and HAL traits
 - [Logging](#logging)
 - [Watchdog](#watchdog)
 - [Health Monitor](#health-monitor)
+- [Security](#security)
 - [SpinLock](#spinlock)
 - [HAL Traits](#hal-traits)
 
@@ -52,6 +53,12 @@ Interactive commands at the `tiny_os>` UART prompt. Type `help` for the built-in
 | `netstat` | Show IP/MAC config, ARP cache, and open socket count |
 | `ifconfig` | Show network interface configuration (loopback) |
 | `temp` | Show the current SoC temperature (°C) |
+| `firewall` | Show firewall status, rules, and pass/drop counters |
+| `integrity` | Show .text CRC32 status, check count, last check tick |
+| `audit [N]` | Show last N audit log entries (default 10) |
+| `audit persist` | Persist audit log to FAT32 `/audit.log` |
+| `faulttest` | Run the 8-test fault injection suite |
+| `wcet` | Dump WCET measurements for instrumented code paths |
 | `exec <path>` | Load and execute an ELF64 binary from filesystem (requires `dynamic-load` feature) |
 | `yield` | Yield the current task's timeslice |
 | `svc` | Trigger a test SVC #42 exception |
@@ -691,11 +698,154 @@ pub fn kick_count() -> u64      // Total kicks since init
 
 Module: `kernel::health` (`kernel/src/health.rs`)
 
-Periodic task (priority 1) that checks stack watermarks, CPU utilization, and watchdog status every 5 seconds.
+Periodic task (priority 1) running 8 checks every 5 seconds:
+
+1. **Stack watermarks** — scan all tasks for low stack remaining, call `os_hook_stack_overflow` if critical
+2. **CPU utilization** — log busy/total tick ratio
+3. **Watchdog status** — verify watchdog is being kicked
+4. **Ready queue integrity** — validate scheduler data structures
+5. **Mutex ownership** — check for orphaned locks
+6. **Tick monotonicity** — verify system tick is advancing
+7. **Pool accounting** — verify memory pool free counts match actual state
+8. **Code integrity** — re-verify CRC32 of .text section against boot-time reference
 
 ```rust
 pub fn health_task(_arg: usize) -> !    // Task entry point
 ```
+
+---
+
+## Security
+
+### Syscall Capabilities (`kernel::sched`)
+
+Per-task capability bitmask controlling which syscalls a task may invoke. Kernel tasks get `CAP_ALL`; user tasks get `CAP_USER_DEFAULT` (excludes SPI, I2C, GPIO).
+
+```rust
+pub const CAP_YIELD: u32  = 1 << 0;
+pub const CAP_DELAY: u32  = 1 << 1;
+pub const CAP_WRITE: u32  = 1 << 2;
+pub const CAP_TASKID: u32 = 1 << 3;
+pub const CAP_UPTIME: u32 = 1 << 4;
+pub const CAP_EXIT: u32   = 1 << 5;
+pub const CAP_TEMP: u32   = 1 << 6;
+pub const CAP_FS: u32     = 1 << 10;
+pub const CAP_NET: u32    = 1 << 11;
+pub const CAP_SPI: u32    = 1 << 12;
+pub const CAP_I2C: u32    = 1 << 13;
+pub const CAP_GPIO: u32   = 1 << 14;
+pub const CAP_ALL: u32    = 0xFFFFFFFF;
+pub const CAP_USER_DEFAULT: u32 = CAP_YIELD | CAP_DELAY | CAP_WRITE | CAP_TASKID
+    | CAP_UPTIME | CAP_EXIT | CAP_TEMP | CAP_FS | CAP_NET;
+
+pub fn task_has_capability(cap: u32) -> bool
+```
+
+When a syscall is denied, the dispatcher returns `E_PERM` (`u64::MAX - 8`) and logs a `CapabilityDenied` audit event.
+
+### Firewall (`kernel::net::firewall`)
+
+Allowlist-based packet filter with up to 16 rules. Default-deny when enabled — only packets matching a rule are passed to the stack.
+
+```rust
+pub fn init()
+pub fn enable()
+pub fn disable()
+pub fn is_enabled() -> bool
+pub fn add_rule(src_ip: Ipv4Addr, src_mask: Ipv4Addr, dst_port: u16, protocol: Protocol) -> bool
+pub fn clear_rules()
+pub fn check_packet(ip_data: &[u8], hdr: &Ipv4Header) -> bool
+pub fn stats() -> (u64, u64)          // (passed, dropped)
+pub fn rule_count() -> usize
+pub fn get_rule(idx: usize) -> Option<FirewallRule>
+```
+
+```rust
+pub enum Protocol { Any, Icmp, Udp, Tcp }
+```
+
+### Cryptography (`kernel::crypto`)
+
+#### SHA-256 (`kernel::crypto::sha256`)
+
+FIPS 180-4 implementation with both runtime and compile-time variants.
+
+```rust
+pub fn hash(data: &[u8]) -> [u8; 32]                  // One-shot hash
+pub const fn const_hash(data: &[u8]) -> [u8; 32]      // Compile-time hash
+
+pub struct Sha256 { /* ... */ }
+impl Sha256 {
+    pub fn new() -> Self
+    pub fn update(&mut self, data: &[u8])
+    pub fn finalize(self) -> [u8; 32]
+}
+```
+
+#### HMAC-SHA256 (`kernel::crypto::hmac`)
+
+RFC 2104 keyed-hash message authentication with constant-time comparison.
+
+```rust
+pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32]
+pub fn verify(key: &[u8], message: &[u8], tag: &[u8; 32]) -> bool  // Constant-time
+```
+
+#### CRC32 (`kernel::crypto::crc32`)
+
+CRC32 with precomputed 256-entry lookup table.
+
+```rust
+pub fn crc32(data: &[u8]) -> u32
+pub fn crc32_update(prev_crc: u32, data: &[u8]) -> u32  // Incremental
+```
+
+### Code Integrity (`kernel::integrity`)
+
+Runtime verification of the kernel's `.text` section using CRC32. Computed at boot, periodically re-verified by the health monitor.
+
+```rust
+pub fn init()                          // Compute and store boot CRC
+pub fn verify() -> bool                // Re-check .text CRC matches boot value
+pub fn boot_crc() -> u32              // The reference CRC from boot
+pub fn last_check_tick() -> u64       // Tick of most recent verification
+pub fn check_count() -> u64           // Total verifications performed
+pub fn text_size() -> usize           // Size of verified .text region
+```
+
+### Audit Log (`kernel::audit`)
+
+Security event recording with 64-entry ring buffer and FAT32 persistence.
+
+```rust
+pub fn log(event: AuditEvent, detail: &str)
+pub fn dump(max: usize)               // Print last N entries to console
+pub fn persist_to_fs()                 // Write all entries to /audit.log
+```
+
+```rust
+pub enum AuditEvent {
+    Boot, Shutdown,
+    AuthOk, AuthFail,
+    FirewallDrop, CapabilityDenied,
+    IntegrityOk, IntegrityFail,
+    TaskCreated, TaskTerminated,
+}
+```
+
+Each entry records: tick, core_id, task_id, event type, and a 40-byte detail string.
+
+### JTAG Lockdown (`kernel::jtag`)
+
+Disables debug access in safety-critical mode. Controlled by `os_cfg::DEBUG_LOCKDOWN`.
+
+```rust
+pub fn lockdown()   // Lock OSLAR_EL1 + disable GPIO 22-27 on Pi 5
+```
+
+### Shell Authentication
+
+When `os_cfg::SHELL_AUTH_EN` is true (auto-enabled in safety-critical mode), the shell requires password authentication before granting access. The password is stored as a compile-time SHA-256 hash — no plaintext in the binary. After 3 failed attempts, the shell locks out for 30 seconds.
 
 ---
 

@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 10 complete** — Networking & User Mode: zero-copy network stack (Ethernet, ARP, IPv4, ICMP, UDP, TCP) with loopback device for QEMU, BSD socket API, EL0 user-mode tasks with per-task page tables (TTBR0+ASID), SVC-based syscall dispatch with subsystem multiplexing (FS, NET, SPI, I2C, GPIO). RP1 southbridge drivers for SPI (DW_apb_ssi), I2C (DW_apb_i2c), and GPIO (28-pin, pad control). User-space apps in `examples/`: temperature monitor (SoC temp stats), industrial sensor gateway (SPI/I2C/GPIO data collection, SD card logging, UDP telemetry). Optional ELF64 dynamic loader (`dynamic-load` feature) loads PIE binaries from the filesystem at runtime via `exec` shell command — disabled by default for safety-critical builds. Shell commands: `ping`, `netstat`, `ifconfig`, `temp`, `exec`. Built on Phase 9's filesystem, Phase 8's netbuf/block cache, Phase 7's SMP (4 cores), and earlier phases (scheduler, sync, MMU, GIC, timer).
+**Phase 13 complete** — Security Hardening: allowlist-based network firewall (default-deny, 16-rule table), SHA-256 (FIPS 180-4, runtime + const fn) and HMAC-SHA256 (RFC 2104, constant-time), CRC32 with precomputed lookup table, shell authentication with compile-time password hash and 3-attempt lockout, per-task syscall capability bitmask (12 capability bits, `CAP_ALL` for kernel, restricted `CAP_USER_DEFAULT` for user tasks), runtime code integrity verification (CRC32 of .text at boot, periodic re-check by health monitor), persistent audit log (64-entry ring buffer, 10 event types, FAT32 persistence), JTAG/debug lockdown (OSLAR_EL1, GPIO reconfiguration in safety-critical mode). 86 traced requirements across 18 categories. Built on Phase 11's safety certification infrastructure, Phase 10's networking and user mode, and earlier phases (filesystem, storage, SMP, scheduler, sync, MMU, GIC, timer).
 
 ## Target Hardware
 
@@ -77,11 +77,11 @@ UART output appears on stdout. Type `help` at the `tiny_os>` prompt. Press `Ctrl
 
 ```sh
 make test          # run all tests (host unit + QEMU integration)
-make test-host     # host-side unit tests only (28 tests, no QEMU needed)
-make test-qemu     # QEMU integration tests only (13 boot verification checks)
+make test-host     # host-side unit tests only (44 tests, no QEMU needed)
+make test-qemu     # QEMU integration tests only (15 boot verification checks)
 ```
 
-Host-side tests verify pure-logic algorithms (IPv4 checksum, Ethernet/MBR parsing) natively. QEMU tests boot the kernel and check serial output for expected subsystem initialization.
+Host-side tests verify pure-logic algorithms (IPv4 checksum, Ethernet/MBR parsing, SHA-256/HMAC, CRC32) natively. QEMU tests boot the kernel and check serial output for expected subsystem initialization.
 
 ### Other make targets
 
@@ -104,7 +104,7 @@ tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, mailbox, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
 ├── examples/   # User-space applications (EL0): temp monitor, sensor gateway
-├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, syscalls, user tasks, ELF loader, netbuf, IRQ dispatch, memory mgmt, shell
+├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, firewall, crypto (SHA-256, HMAC, CRC32), integrity, audit, JTAG lockdown, syscalls, user tasks, ELF loader, netbuf, IRQ dispatch, memory mgmt, shell
 ├── tests/      # Host unit tests (cargo test) + QEMU integration tests (boot verification)
 └── docs/       # Specifications, API reference, and developer guides
 ```
@@ -117,7 +117,7 @@ tiny_os/
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the full 12-phase implementation plan (Phase 11: Safety Certification, Phase 12: Extended Peripheral Support).
+See [ROADMAP.md](ROADMAP.md) for the full 13-phase implementation plan and long-term goals.
 
 ## License
 

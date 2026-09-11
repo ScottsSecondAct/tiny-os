@@ -55,3 +55,33 @@ REQ-BUDGET-002,4.8,Period-based budget replenishment,kernel/src/sched.rs,budget_
 REQ-BUDGET-003,4.8,os_hook_budget_overrun called on exhaustion,kernel/src/sched.rs,hook invocation in tick(),Done
 REQ-SCHED-001,5.3,RMA utilization check,kernel/src/sched_analysis.rs,precomputed bounds,Done
 REQ-SCHED-002,5.3,Response-Time Analysis with PIP blocking,kernel/src/sched_analysis.rs,iterative RTA,Done
+REQ-SEC-FW-001,13.1,Allowlist firewall default-deny when enabled,kernel/src/net/firewall.rs,QEMU integration,Done
+REQ-SEC-FW-002,13.1,Firewall rule matching: src IP/mask + dst port + protocol,kernel/src/net/firewall.rs,shell firewall command,Done
+REQ-SEC-FW-003,13.1,Firewall integrated before IPv4 protocol demux,kernel/src/net/ipv4.rs,QEMU integration,Done
+REQ-SEC-FW-004,13.1,Firewall atomic pass/drop counters,kernel/src/net/firewall.rs,shell firewall command,Done
+REQ-SEC-FW-005,13.1,Firewall drop logged to audit trail,kernel/src/net/ipv4.rs,audit log integration,Done
+REQ-SEC-CRYPTO-001,13.2,SHA-256 FIPS 180-4 runtime hash,kernel/src/crypto/sha256.rs,host-tests::sha256 (6 tests),Done
+REQ-SEC-CRYPTO-002,13.2,SHA-256 const fn for compile-time hashing,kernel/src/crypto/sha256.rs,host-tests::sha256_tiny_os_password,Done
+REQ-SEC-CRYPTO-003,13.2,HMAC-SHA256 RFC 2104 keyed-hash MAC,kernel/src/crypto/hmac.rs,host-tests::hmac_sha256 (4 tests),Done
+REQ-SEC-CRYPTO-004,13.2,HMAC constant-time comparison,kernel/src/crypto/hmac.rs,host-tests::hmac_verify_correct/wrong,Done
+REQ-SEC-CRYPTO-005,13.2,CRC32 with precomputed lookup table,kernel/src/crypto/crc32.rs,host-tests::crc32 (6 tests),Done
+REQ-SEC-AUTH-001,13.3,Shell password stored as compile-time SHA-256 hash,kernel/src/shell.rs,const_hash invocation,Done
+REQ-SEC-AUTH-002,13.3,Shell lockout after 3 failed attempts,kernel/src/shell.rs,SHELL_AUTH_MAX_ATTEMPTS cfg,Done
+REQ-SEC-AUTH-003,13.3,Shell auth cfg-gated via SHELL_AUTH_EN,kernel/src/os_cfg.rs,const in os_cfg,Done
+REQ-SEC-AUTH-004,13.3,Auth success/failure logged to audit,kernel/src/shell.rs,audit::log(AuthOk/AuthFail),Done
+REQ-SEC-CAP-001,13.4,Per-task capability bitmask in TCB,kernel/src/sched.rs,capabilities field in TCB,Done
+REQ-SEC-CAP-002,13.4,CAP_ALL for kernel tasks,kernel/src/sched.rs,task_create sets CAP_ALL,Done
+REQ-SEC-CAP-003,13.4,CAP_USER_DEFAULT excludes SPI/I2C/GPIO for user tasks,kernel/src/sched.rs,const CAP_USER_DEFAULT,Done
+REQ-SEC-CAP-004,13.4,Syscall dispatch checks capability before execution,kernel/src/syscall.rs,cap_for_syscall + task_has_capability,Done
+REQ-SEC-CAP-005,13.4,Capability denial returns E_PERM with audit log,kernel/src/syscall.rs,audit::log(CapabilityDenied),Done
+REQ-SEC-INT-001,13.5,CRC32 of .text computed at boot,kernel/src/integrity.rs,init() computes BOOT_CRC,Done
+REQ-SEC-INT-002,13.5,Health monitor periodic .text CRC verification,kernel/src/health.rs,check_code_integrity(),Done
+REQ-SEC-INT-003,13.5,Integrity failure logged and hook called,kernel/src/health.rs,os_hook_health_check_failed,Done
+REQ-SEC-AUDIT-001,13.6,64-entry ring buffer audit log,kernel/src/audit.rs,MAX_ENTRIES=64,Done
+REQ-SEC-AUDIT-002,13.6,10 security event types,kernel/src/audit.rs,AuditEvent enum (10 variants),Done
+REQ-SEC-AUDIT-003,13.6,Per-entry tick + core_id + task_id,kernel/src/audit.rs,AuditEntry fields,Done
+REQ-SEC-AUDIT-004,13.6,Persistent audit log to FAT32 /audit.log,kernel/src/audit.rs,persist_to_fs(),Done
+REQ-SEC-JTAG-001,13.7,OSLAR_EL1 debug register lock on boot,kernel/src/jtag.rs,msr oslar_el1 instruction,Done
+REQ-SEC-JTAG-002,13.7,GPIO 22-27 disabled in safety-critical mode on Pi 5,kernel/src/jtag.rs,cfg(bsp-rpi5) GPIO reconfigure,Done
+REQ-SEC-JTAG-003,13.7,Lockdown controlled by DEBUG_LOCKDOWN cfg,kernel/src/os_cfg.rs,const DEBUG_LOCKDOWN,Done
+REQ-SEC-HEALTH-001,13.5,Health monitor extended to 8 checks with code integrity,kernel/src/health.rs,check_code_integrity added,Done

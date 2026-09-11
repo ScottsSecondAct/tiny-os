@@ -11,6 +11,7 @@ This guide covers everything you need to write, build, and run applications on t
 - [Syscall Reference](#syscall-reference)
 - [Writing a Static Application](#writing-a-static-application)
 - [Writing a Dynamically Loaded Application](#writing-a-dynamically-loaded-application)
+- [Syscall Capabilities](#syscall-capabilities)
 - [Programming Constraints](#programming-constraints)
 - [String and Data Handling](#string-and-data-handling)
 - [Formatting Output](#formatting-output)
@@ -32,6 +33,9 @@ This guide covers everything you need to write, build, and run applications on t
 ├──────────────────────┼──────────────────────────────────────┤
 │  Kernel (EL1)        ▼                                      │
 │  ┌──────────────────────────────────────────────────────┐   │
+│  │ Capability Check (per-task bitmask)                  │   │
+│  │  → denied? return E_PERM + audit log                │   │
+│  ├──────────────────────────────────────────────────────┤   │
 │  │ Syscall Dispatch (X8=nr, X0-X1=args, X0=return)     │   │
 │  │  → yield, delay, write, task_id, uptime, exit, temp │   │
 │  └──────────────────────────────────────────────────────┘   │
@@ -156,6 +160,53 @@ fn sys_exit() -> ! {
 
 #[inline(always)]
 fn sys_temperature() -> i32 { syscall(6, 0, 0) as i32 }
+```
+
+---
+
+## Syscall Capabilities
+
+Every task has a capability bitmask that controls which syscalls it may invoke. The kernel checks this bitmask before dispatching any syscall. A denied syscall returns `E_PERM` (`0xFFFF_FFFF_FFFF_FFF7`) and logs a `CapabilityDenied` audit event.
+
+### Default Capabilities
+
+| Task Type | Capability Set | Description |
+|-----------|---------------|-------------|
+| Kernel tasks | `CAP_ALL` (0xFFFFFFFF) | Unrestricted access to all syscalls |
+| User tasks | `CAP_USER_DEFAULT` | Basic + FS + NET; excludes SPI, I2C, GPIO |
+
+### User Default Capabilities
+
+User tasks created with `task_create_user()` receive `CAP_USER_DEFAULT`, which includes:
+
+| Capability | Syscall | Included? |
+|-----------|---------|-----------|
+| `CAP_YIELD` | SYS_YIELD (0) | Yes |
+| `CAP_DELAY` | SYS_DELAY (1) | Yes |
+| `CAP_WRITE` | SYS_WRITE (2) | Yes |
+| `CAP_TASKID` | SYS_TASK_ID (3) | Yes |
+| `CAP_UPTIME` | SYS_UPTIME (4) | Yes |
+| `CAP_EXIT` | SYS_EXIT (5) | Yes |
+| `CAP_TEMP` | SYS_TEMPERATURE (6) | Yes |
+| `CAP_FS` | SYS_FS (10) | Yes |
+| `CAP_NET` | SYS_NET (11) | Yes |
+| `CAP_SPI` | SYS_SPI (12) | **No** |
+| `CAP_I2C` | SYS_I2C (13) | **No** |
+| `CAP_GPIO` | SYS_GPIO (14) | **No** |
+
+SPI, I2C, and GPIO access is restricted because these peripherals can directly control hardware. To grant these to a user task, the kernel code creating the task must set the capabilities explicitly.
+
+### Handling E_PERM
+
+User applications should check for `E_PERM` when calling subsystem syscalls:
+
+```rust
+const E_PERM: u64 = u64::MAX - 8;
+
+let result = syscall4(12, 0, clock_hz, mode, cs_pin);  // SYS_SPI / SPI_OPEN
+if result == E_PERM {
+    // Task does not have CAP_SPI — handle gracefully
+}
 ```
 
 ---
