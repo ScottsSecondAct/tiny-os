@@ -22,6 +22,8 @@ pub mod storage;
 pub mod sync;
 mod user_tasks;
 pub mod watchdog;
+#[cfg(feature = "dynamic-load")]
+pub mod loader;
 
 use arch::aarch64::{emmc2, exceptions as exc, gic, mailbox, mmu, timer, smp};
 use arch::uart::UartDriver;

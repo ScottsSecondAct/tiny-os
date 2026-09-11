@@ -74,6 +74,20 @@ pub fn heap_stats() -> (usize, usize, usize) {
     heap::stats()
 }
 
+#[cfg(feature = "dynamic-load")]
+pub fn alloc_pages(count: usize) -> Option<usize> {
+    use arch::mm::PageAllocator;
+    pmm().alloc_pages(count)
+}
+
+#[cfg(feature = "dynamic-load")]
+pub fn free_pages(base: usize, count: usize) {
+    use arch::mm::PageAllocator;
+    for i in 0..count {
+        pmm().free_page(base + i * PAGE_SIZE);
+    }
+}
+
 fn bsp_default_ram() -> (usize, usize) {
     #[cfg(feature = "bsp-qemu")]
     {

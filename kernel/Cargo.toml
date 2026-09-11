@@ -15,3 +15,4 @@ bsp  = { path = "../bsp", default-features = false }
 default = ["bsp-rpi5"]
 bsp-rpi5 = ["bsp/bsp-rpi5"]
 bsp-qemu = ["bsp/bsp-qemu"]
+dynamic-load = []

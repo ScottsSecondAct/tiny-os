@@ -91,6 +91,8 @@ fn dispatch(cmd: &str) {
             kprintln!("          smp, sd, sdread <lba>, ls [path], cat <path>,");
             kprintln!("          hexdump <path>, touch <path>, write <path> <text>,");
             kprintln!("          ping <ip>, netstat, ifconfig, temp,");
+            #[cfg(feature = "dynamic-load")]
+            kprintln!("          exec <path>,");
             kprintln!("          yield, svc, reboot");
         }
         "uptime" => {
@@ -378,6 +380,17 @@ fn dispatch(cmd: &str) {
             match mailbox::get_temperature() {
                 Some(mc) => kprintln!("{}.{}C", mc / 1000, ((mc % 1000).abs()) / 100),
                 None => kprintln!("temperature unavailable"),
+            }
+        }
+        #[cfg(feature = "dynamic-load")]
+        "exec" => {
+            if arg.is_empty() {
+                kprintln!("usage: exec <path>");
+            } else {
+                match crate::loader::load_and_exec(arg) {
+                    Ok(tid) => kprintln!("started task {}", tid),
+                    Err(e) => kprintln!("exec failed: {:?}", e),
+                }
             }
         }
         "yield" => {

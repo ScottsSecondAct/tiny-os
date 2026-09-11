@@ -214,6 +214,7 @@ pub fn kernel_ttbr0() -> u64 {
 const PT_PAGE: u64 = 0b11;
 const NG: u64 = 1 << 11;
 const AP_RW_EL0: u64 = 1 << 6;
+const AP_RO_EL0: u64 = 3 << 6;
 pub const PAGE_SIZE_4K: usize = 4096;
 
 const MAX_USER_TASKS: usize = 4;
@@ -359,6 +360,119 @@ pub unsafe fn create_user_page_table(
             USER_L1[slot].entries[i] = (user_l2 as u64) | PT_TABLE;
         } else {
             USER_L1[slot].entries[i] = L1.entries[i];
+        }
+    }
+
+    let l0_pa = &raw const USER_L0[slot] as u64;
+    l0_pa | ((asid as u64) << 48)
+}
+
+pub struct UserMapping {
+    pub base: usize,
+    pub pages: usize,
+    pub executable: bool,
+}
+
+/// Create a per-task page table for dynamically loaded EL0 binaries.
+///
+/// Each UserMapping describes a contiguous set of identity-mapped 4KB pages
+/// with EL0 permissions: executable=true → RX, executable=false → RW.
+/// A guard page is placed below the last mapping (assumed to be the stack).
+pub unsafe fn create_user_page_table_mapped(mappings: &[UserMapping]) -> u64 {
+    let slot = USER_SLOT_USED.iter().position(|&used| !used)
+        .expect("no free user page table slots");
+    USER_SLOT_USED[slot] = true;
+    let asid = alloc_asid();
+
+    for e in USER_L0[slot].entries.iter_mut() { *e = 0; }
+    for e in USER_L1[slot].entries.iter_mut() { *e = 0; }
+
+    let user_l1_pa = &raw const USER_L1[slot] as u64;
+    USER_L0[slot].entries[0] = user_l1_pa | PT_TABLE;
+
+    // Copy kernel L1 entries as baseline.
+    for i in 0..ENTRIES_PER_TABLE {
+        USER_L1[slot].entries[i] = L1.entries[i];
+    }
+
+    // For each mapping, create L3 page table entries with EL0 permissions.
+    for (mi, mapping) in mappings.iter().enumerate() {
+        if mapping.pages == 0 { continue; }
+        let region_end = mapping.base + mapping.pages * PAGE_SIZE_4K;
+
+        // Process each 2MB block that this mapping touches.
+        let mut block_base = mapping.base & !(BLOCK_SIZE_2M - 1);
+        while block_base < region_end {
+            let l1_idx = (block_base >> 30) & 0x1FF;
+            let l2_idx = (block_base >> 21) & 0x1FF;
+
+            // Ensure we have a private L2 table for this GB range.
+            let l2_entry = USER_L1[slot].entries[l1_idx];
+            let user_l2 = if l2_entry & 0b11 == PT_TABLE {
+                let l2_pa = l2_entry & 0x0000_FFFF_FFFF_F000;
+                // Check if this is still a kernel L2 — if so, clone it.
+                let is_kernel_l2 = L1.entries[l1_idx] == l2_entry;
+                if is_kernel_l2 {
+                    let new_l2 = alloc_user_l2();
+                    let kernel_l2 = l2_pa as *const PageTable;
+                    core::ptr::copy_nonoverlapping(
+                        (*kernel_l2).entries.as_ptr(),
+                        (*new_l2).entries.as_mut_ptr(),
+                        ENTRIES_PER_TABLE,
+                    );
+                    USER_L1[slot].entries[l1_idx] = (new_l2 as u64) | PT_TABLE;
+                    new_l2
+                } else {
+                    l2_pa as *mut PageTable
+                }
+            } else {
+                continue;
+            };
+
+            // Get or create L3 table for this 2MB block.
+            let l2_val = (*user_l2).entries[l2_idx];
+            let l3 = if l2_val & 0b11 == PT_TABLE {
+                // Already an L3 table (from a previous mapping in this block).
+                (l2_val & 0x0000_FFFF_FFFF_F000) as *mut PageTable
+            } else {
+                // Replace 2MB block with L3 table, copying block attributes.
+                let new_l3 = alloc_l3();
+                let page_attrs = (l2_val & BLOCK_ATTR_MASK) | PT_PAGE;
+                for j in 0..ENTRIES_PER_TABLE {
+                    let page_pa = (block_base + j * PAGE_SIZE_4K) as u64;
+                    (*new_l3).entries[j] = page_pa | page_attrs;
+                }
+                (*user_l2).entries[l2_idx] = (new_l3 as u64) | PT_TABLE;
+                new_l3
+            };
+
+            // Set EL0 permissions on pages within this mapping.
+            let overlap_start = mapping.base.max(block_base);
+            let overlap_end = region_end.min(block_base + BLOCK_SIZE_2M);
+            for addr in (overlap_start..overlap_end).step_by(PAGE_SIZE_4K) {
+                let l3_idx = (addr - block_base) / PAGE_SIZE_4K;
+                let pa = addr as u64;
+                if mapping.executable {
+                    // EL0 RX: read-only, executable, non-global.
+                    (*l3).entries[l3_idx] = pa | PT_PAGE | attr_idx(1) | AF
+                        | SH_INNER | AP_RO_EL0 | PXN | NG;
+                } else {
+                    // EL0 RW: read-write, no-execute, non-global.
+                    (*l3).entries[l3_idx] = pa | PT_PAGE | attr_idx(1) | AF
+                        | SH_INNER | AP_RW_EL0 | PXN | UXN | NG;
+                }
+            }
+
+            // Place a guard page below the last mapping (stack).
+            if mi == mappings.len() - 1 {
+                let guard_page = mapping.base.wrapping_sub(PAGE_SIZE_4K);
+                if guard_page >= block_base && guard_page < block_base + BLOCK_SIZE_2M {
+                    let guard_idx = (guard_page - block_base) / PAGE_SIZE_4K;
+                    (*l3).entries[guard_idx] = 0;
+                }
+            }
+
+            block_base += BLOCK_SIZE_2M;
         }
     }
 

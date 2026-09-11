@@ -13,6 +13,7 @@ Complete reference for all kernel APIs, syscalls, shell commands, and HAL traits
 - [Filesystem](#filesystem)
 - [Network Stack](#network-stack)
 - [Memory Management](#memory-management)
+- [Dynamic ELF Loader](#dynamic-elf-loader)
 - [Network Buffer Pool](#network-buffer-pool)
 - [Logging](#logging)
 - [Watchdog](#watchdog)
@@ -49,6 +50,7 @@ Interactive commands at the `tiny_os>` UART prompt. Type `help` for the built-in
 | `netstat` | Show IP/MAC config, ARP cache, and open socket count |
 | `ifconfig` | Show network interface configuration (loopback) |
 | `temp` | Show the current SoC temperature (°C) |
+| `exec <path>` | Load and execute an ELF64 binary from filesystem (requires `dynamic-load` feature) |
 | `yield` | Yield the current task's timeslice |
 | `svc` | Trigger a test SVC #42 exception |
 | `reboot` | Reboot the system |
@@ -487,6 +489,47 @@ pub unsafe fn switch_ttbr0(ttbr0: u64)          // Swap TTBR0 + TLBI + DSB + ISB
 ```rust
 pub enum MemKind { RoCode, Ram, NonCacheable, Device }
 ```
+
+---
+
+## Dynamic ELF Loader
+
+Module: `kernel::loader` (`kernel/src/loader.rs`) — requires `dynamic-load` Cargo feature.
+
+Loads ELF64 PIE binaries from the filesystem at runtime, creating EL0 user-mode tasks. Disabled by default for safety-critical builds where static linking is required.
+
+### Build
+
+```sh
+# Enable dynamic loading
+cargo build --features kernel/dynamic-load
+
+# Default (no dynamic loading, production/certification)
+cargo build
+```
+
+### Shell Usage
+
+```
+exec /apps/hello.elf
+```
+
+### API
+
+```rust
+pub fn load_and_exec(path: &str) -> Result<u8, LoadError>
+```
+
+Parses the ELF64 header, loads PT_LOAD segments into PMM-allocated pages, applies R_AARCH64_RELATIVE relocations for PIE binaries, creates per-task page tables with W^X permissions (RX for code, RW for data/stack), and spawns the task at EL0.
+
+Returns the new task ID on success.
+
+### Supported Binary Format
+
+- ELF64 AArch64 (`EM_AARCH64`)
+- Position-Independent Executable (PIE, `ET_DYN`)
+- R_AARCH64_RELATIVE relocations
+- Up to 8 PT_LOAD segments
 
 ---
 

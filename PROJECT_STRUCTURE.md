@@ -99,13 +99,16 @@ tiny_os/
         │                   #   unhandled trap
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
         │                   #   tasks, smp, log, health, sd, sdread, ls, cat, hexdump,
-        │                   #   touch, write, ping, netstat, ifconfig, temp, yield, svc, reboot
+        │                   #   touch, write, ping, netstat, ifconfig, temp, exec [dynamic-load],
+        │                   #   yield, svc, reboot
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
         ├── syscall.rs      # Syscall dispatch: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2),
         │                   #   SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
         ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs,
         │                   #   all code in .user.text section (EL0-accessible)
+        ├── loader.rs       # [dynamic-load] ELF64 PIE loader: parse headers, load
+        │                   #   PT_LOAD segments, apply relocations, create user tasks
         ├── net/            # Network stack subsystem
         │   ├── mod.rs      # Network init, RX dispatch loop, net_task, IP/MAC config
         │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType demux)

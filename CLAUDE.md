@@ -81,10 +81,12 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, exec [dynamic-load], yield, svc, reboot)
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
 │   │   ├── syscall.rs      # Syscall dispatch: SYS_YIELD, SYS_DELAY, SYS_WRITE, SYS_TASK_ID, SYS_UPTIME, SYS_EXIT, SYS_TEMPERATURE
 │   │   ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs (.user.text section)
+│   │   ├── loader.rs       # [dynamic-load] ELF64 loader: parse headers, load PT_LOAD segments,
+│   │   │                   #   apply R_AARCH64_RELATIVE relocations, create per-task page tables
 │   │   ├── net/            # Network stack subsystem
 │   │   │   ├── mod.rs      # Network init, RX dispatch, net_task poll loop
 │   │   │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType)
