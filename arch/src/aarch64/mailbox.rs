@@ -10,6 +10,12 @@ const STATUS_EMPTY: u32 = 1 << 30;
 const CHANNEL_PROPERTY: u32 = 8;
 
 const TAG_GET_TEMPERATURE: u32 = 0x0003_0006;
+const TAG_GET_CLOCK_RATE: u32 = 0x0003_0002;
+const TAG_SET_CLOCK_RATE: u32 = 0x0003_8002;
+const TAG_GET_MAX_CLOCK: u32 = 0x0003_0004;
+const TAG_GET_MIN_CLOCK: u32 = 0x0003_0007;
+const TAG_GET_VOLTAGE: u32 = 0x0003_0003;
+const CLOCK_ARM: u32 = 3;
 const TAG_END: u32 = 0;
 
 const RESPONSE_SUCCESS: u32 = 0x8000_0000;
@@ -22,6 +28,13 @@ struct PropBuf {
 }
 
 static mut PROP_BUF: PropBuf = PropBuf { data: [0; 8] };
+
+#[repr(C, align(16))]
+struct PropBuf10 {
+    data: [u32; 10],
+}
+
+static mut PROP_BUF2: PropBuf10 = PropBuf10 { data: [0; 10] };
 
 pub fn init(base: usize) {
     // SAFETY: Called once from kmain before any mailbox use.
@@ -71,6 +84,133 @@ pub fn get_temperature() -> Option<i32> {
         }
 
         Some(PROP_BUF.data[6] as i32)
+    }
+}
+
+/// Get the current ARM CPU clock rate in Hz.
+pub fn get_clock_rate() -> Option<u32> {
+    get_clock_property(TAG_GET_CLOCK_RATE)
+}
+
+/// Get the maximum ARM CPU clock rate in Hz.
+pub fn get_max_clock() -> Option<u32> {
+    get_clock_property(TAG_GET_MAX_CLOCK)
+}
+
+/// Get the minimum ARM CPU clock rate in Hz.
+pub fn get_min_clock() -> Option<u32> {
+    get_clock_property(TAG_GET_MIN_CLOCK)
+}
+
+/// Get core voltage in microvolts.
+pub fn get_voltage() -> Option<u32> {
+    if !is_initialized() {
+        return None;
+    }
+
+    // SAFETY: Same serialization guarantees as get_temperature.
+    unsafe {
+        PROP_BUF.data[0] = 32;
+        PROP_BUF.data[1] = 0;
+        PROP_BUF.data[2] = TAG_GET_VOLTAGE;
+        PROP_BUF.data[3] = 8;
+        PROP_BUF.data[4] = 0;
+        PROP_BUF.data[5] = 1; // voltage_id = 1 (core)
+        PROP_BUF.data[6] = 0;
+        PROP_BUF.data[7] = TAG_END;
+
+        core::arch::asm!("dsb sy");
+
+        let buf_addr = &raw const PROP_BUF as usize as u32;
+        if !mailbox_call(buf_addr) {
+            return None;
+        }
+
+        core::arch::asm!("dsb sy");
+
+        if PROP_BUF.data[1] & RESPONSE_SUCCESS == 0 {
+            return None;
+        }
+        if PROP_BUF.data[4] & RESPONSE_SUCCESS == 0 {
+            return None;
+        }
+
+        Some(PROP_BUF.data[6])
+    }
+}
+
+/// Set the ARM CPU clock rate. Returns the actual rate set, in Hz.
+pub fn set_clock_rate(hz: u32) -> Option<u32> {
+    if !is_initialized() {
+        return None;
+    }
+
+    // SAFETY: PROP_BUF2 is only accessed by serialized mailbox calls.
+    unsafe {
+        PROP_BUF2.data[0] = 40; // total buffer size
+        PROP_BUF2.data[1] = 0;  // request
+        PROP_BUF2.data[2] = TAG_SET_CLOCK_RATE;
+        PROP_BUF2.data[3] = 12; // value buffer size (clock_id + rate + skip_turbo)
+        PROP_BUF2.data[4] = 0;  // request indicator
+        PROP_BUF2.data[5] = CLOCK_ARM;
+        PROP_BUF2.data[6] = hz;
+        PROP_BUF2.data[7] = 0; // skip_turbo = 0
+        PROP_BUF2.data[8] = TAG_END;
+        PROP_BUF2.data[9] = 0;
+
+        core::arch::asm!("dsb sy");
+
+        let buf_addr = &raw const PROP_BUF2 as usize as u32;
+        if !mailbox_call(buf_addr) {
+            return None;
+        }
+
+        core::arch::asm!("dsb sy");
+
+        if PROP_BUF2.data[1] & RESPONSE_SUCCESS == 0 {
+            return None;
+        }
+        if PROP_BUF2.data[4] & RESPONSE_SUCCESS == 0 {
+            return None;
+        }
+
+        Some(PROP_BUF2.data[6])
+    }
+}
+
+fn get_clock_property(tag: u32) -> Option<u32> {
+    if !is_initialized() {
+        return None;
+    }
+
+    // SAFETY: Same serialization guarantees as get_temperature.
+    unsafe {
+        PROP_BUF.data[0] = 32;
+        PROP_BUF.data[1] = 0;
+        PROP_BUF.data[2] = tag;
+        PROP_BUF.data[3] = 8;
+        PROP_BUF.data[4] = 0;
+        PROP_BUF.data[5] = CLOCK_ARM;
+        PROP_BUF.data[6] = 0;
+        PROP_BUF.data[7] = TAG_END;
+
+        core::arch::asm!("dsb sy");
+
+        let buf_addr = &raw const PROP_BUF as usize as u32;
+        if !mailbox_call(buf_addr) {
+            return None;
+        }
+
+        core::arch::asm!("dsb sy");
+
+        if PROP_BUF.data[1] & RESPONSE_SUCCESS == 0 {
+            return None;
+        }
+        if PROP_BUF.data[4] & RESPONSE_SUCCESS == 0 {
+            return None;
+        }
+
+        Some(PROP_BUF.data[6])
     }
 }
 

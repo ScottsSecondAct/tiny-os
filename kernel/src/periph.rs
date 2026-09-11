@@ -1,11 +1,13 @@
-// Peripheral driver instances for SPI, I2C, and GPIO.
+// Peripheral driver instances for SPI, I2C, GPIO, PWM, and Serial.
 //
 // On RPi5, these use the RP1 southbridge drivers. On QEMU (no RP1),
-// all operations return ENOSYS.
+// all operations return errors.
 
 use arch::spi::{SpiConfig, SpiDevice, SpiError};
 use arch::i2c::{I2cConfig, I2cDevice, I2cError};
 use arch::gpio::{GpioController, GpioError, PinMode, PullMode};
+use arch::pwm::{PwmConfig, PwmDevice, PwmError};
+use arch::serial::{SerialConfig, SerialPort, SerialError};
 use core::cell::UnsafeCell;
 
 // --- SPI ---
@@ -197,4 +199,126 @@ pub fn gpio_write(pin: u8, high: bool) -> Result<(), GpioError> {
     { gpio_state().driver.write(pin, high) }
     #[cfg(not(feature = "bsp-rpi5"))]
     { let _ = (pin, high); Err(GpioError::NotConfigured) }
+}
+
+// --- PWM ---
+
+struct PwmCell(UnsafeCell<PwmState>);
+unsafe impl Sync for PwmCell {}
+
+struct PwmState {
+    configured: bool,
+    #[cfg(feature = "bsp-rpi5")]
+    driver: bsp::Rp1Pwm,
+}
+
+static PWM: PwmCell = PwmCell(UnsafeCell::new(PwmState {
+    configured: false,
+    #[cfg(feature = "bsp-rpi5")]
+    driver: bsp::Rp1Pwm::new(),
+}));
+
+fn pwm_state() -> &'static mut PwmState {
+    // SAFETY: Single-task access via syscall serialization.
+    unsafe { &mut *PWM.0.get() }
+}
+
+pub fn pwm_configure(config: &PwmConfig) -> Result<(), PwmError> {
+    let s = pwm_state();
+    #[cfg(feature = "bsp-rpi5")]
+    {
+        s.driver.configure(config)?;
+        s.configured = true;
+        Ok(())
+    }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    {
+        let _ = (s, config);
+        Err(PwmError::HardwareNotAvailable)
+    }
+}
+
+pub fn pwm_set_duty(channel: u8, duty: u8) -> Result<(), PwmError> {
+    let s = pwm_state();
+    if !s.configured {
+        return Err(PwmError::NotEnabled);
+    }
+    #[cfg(feature = "bsp-rpi5")]
+    { s.driver.set_duty(channel, duty) }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    { let _ = (channel, duty); Err(PwmError::HardwareNotAvailable) }
+}
+
+pub fn pwm_enable(channel: u8) -> Result<(), PwmError> {
+    let s = pwm_state();
+    if !s.configured {
+        return Err(PwmError::NotEnabled);
+    }
+    #[cfg(feature = "bsp-rpi5")]
+    { s.driver.enable(channel) }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    { let _ = channel; Err(PwmError::HardwareNotAvailable) }
+}
+
+pub fn pwm_disable(channel: u8) -> Result<(), PwmError> {
+    let s = pwm_state();
+    if !s.configured {
+        return Err(PwmError::NotEnabled);
+    }
+    #[cfg(feature = "bsp-rpi5")]
+    { s.driver.disable(channel) }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    { let _ = channel; Err(PwmError::HardwareNotAvailable) }
+}
+
+// --- Serial ---
+
+struct SerialCell(UnsafeCell<SerialState>);
+unsafe impl Sync for SerialCell {}
+
+struct SerialState {
+    #[cfg(feature = "bsp-rpi5")]
+    driver: bsp::Rp1Serial,
+    #[cfg(not(feature = "bsp-rpi5"))]
+    _phantom: (),
+}
+
+static SERIAL: SerialCell = SerialCell(UnsafeCell::new(SerialState {
+    #[cfg(feature = "bsp-rpi5")]
+    driver: bsp::Rp1Serial::new(),
+    #[cfg(not(feature = "bsp-rpi5"))]
+    _phantom: (),
+}));
+
+fn serial_state() -> &'static mut SerialState {
+    // SAFETY: Single-task access via syscall serialization.
+    unsafe { &mut *SERIAL.0.get() }
+}
+
+pub fn serial_open(config: &SerialConfig) -> Result<(), SerialError> {
+    #[cfg(feature = "bsp-rpi5")]
+    { serial_state().driver.open(config) }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    { let _ = config; Err(SerialError::PortNotAvailable) }
+}
+
+pub fn serial_write(port: u8, data: &[u8]) -> Result<usize, SerialError> {
+    #[cfg(feature = "bsp-rpi5")]
+    { serial_state().driver.write(port, data) }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    { let _ = (port, data); Err(SerialError::PortNotAvailable) }
+}
+
+pub fn serial_read(port: u8, buf: &mut [u8]) -> Result<usize, SerialError> {
+    #[cfg(feature = "bsp-rpi5")]
+    { serial_state().driver.read(port, buf) }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    { let _ = (port, buf); Err(SerialError::PortNotAvailable) }
+}
+
+pub fn serial_close(port: u8) -> Result<(), SerialError> {
+    #[cfg(feature = "bsp-rpi5")]
+    { serial_state().driver.close(port) }
+    #[cfg(not(feature = "bsp-rpi5"))]
+    { let _ = port; Err(SerialError::PortNotAvailable) }
 }

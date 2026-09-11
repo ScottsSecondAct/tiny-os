@@ -44,6 +44,18 @@ pub const RP1_I2C0_BASE: usize = RP1_BASE + 0x0007_0000;
 /// RP1 GPIO base (RP1-local 0x400D_0000).
 pub const RP1_GPIO_BASE: usize = RP1_BASE + 0x000D_0000;
 
+/// RP1 PWM0 base (RP1-local 0x4009_8000).
+pub const RP1_PWM_BASE: usize = RP1_BASE + 0x0009_8000;
+
+/// RP1 UART1 base (PL011, RP1-local 0x4006_C800).
+pub const RP1_UART1_BASE: usize = RP1_BASE + 0x0006_C800;
+
+/// RP1 Ethernet MAC base (Synopsys GMAC, RP1-local 0x4010_0000).
+pub const RP1_ETH_BASE: usize = RP1_BASE + 0x0010_0000;
+
+/// RP1 USB host controller base (xHCI, RP1-local 0x4020_0000).
+pub const RP1_USB_BASE: usize = RP1_BASE + 0x0020_0000;
+
 /// RP1 southbridge MMIO region (UART, SPI, I²C, Ethernet).
 pub const RP1_PERIPH_BASE: usize = 0x1F_0000_0000;
 pub const RP1_PERIPH_SIZE: usize = 0x0040_0000; // 4 MB

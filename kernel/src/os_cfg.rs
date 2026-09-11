@@ -112,6 +112,14 @@ pub const SHELL_AUTH_MAX_ATTEMPTS: u8 = 3;
 pub const SHELL_AUTH_LOCKOUT_MS: u32 = 30_000;
 pub const DEBUG_LOCKDOWN: bool = if SAFETY_CRITICAL { true } else { false };
 
+// --- Phase 12: Extended Peripherals ---
+
+pub const MAX_SERIAL_PORTS: usize = 6;
+pub const PWM_CHANNELS: usize = 2;
+pub const MAX_USB_DEVICES: usize = 8;
+pub const CRYPTO_AES_BLOCK_SIZE: usize = 16;
+pub const RTC_EPOCH_YEAR: u16 = 2000;
+
 // --- Netbuf ---
 
 pub const NETBUF_SLOT_SIZE: usize = 2048;

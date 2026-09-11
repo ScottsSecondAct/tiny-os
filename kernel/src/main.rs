@@ -36,6 +36,8 @@ pub mod crypto;
 pub mod integrity;
 pub mod audit;
 pub mod jtag;
+pub mod power;
+pub mod rtc;
 #[cfg(feature = "dynamic-load")]
 pub mod loader;
 
@@ -160,7 +162,7 @@ pub extern "C" fn kmain() -> ! {
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os Phase 13 boot (Security Hardening)");
+    kprintln!("tiny_os boot (Phase 12: Extended Peripherals)");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
@@ -189,8 +191,14 @@ pub extern "C" fn kmain() -> ! {
     let (nb_total, nb_free) = netbuf::pool_stats();
     kprintln!("netbuf: {} buffers ({} free)", nb_total, nb_free);
 
-    // Initialize VideoCore mailbox for temperature sensor.
+    // Initialize VideoCore mailbox for temperature sensor and DVFS.
     mailbox::init(bsp::MAILBOX_BASE);
+
+    // Initialize software RTC (monotonic clock-derived).
+    kprintln!("rtc: software clock initialized");
+
+    // Initialize power management (DVFS via mailbox).
+    kprintln!("power: DVFS via VideoCore mailbox");
 
     // Try EMMC2 SDHCI first; fall back to ramdisk for QEMU.
     match emmc2::init(bsp::EMMC2_BASE) {

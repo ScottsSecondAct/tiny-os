@@ -9,3 +9,4 @@ mod ethernet;
 mod mbr;
 mod sha256;
 mod crc32;
+mod rtc;

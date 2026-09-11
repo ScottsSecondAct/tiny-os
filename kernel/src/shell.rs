@@ -1,4 +1,4 @@
-use crate::{audit, integrity, kprint, kprintln, fs, klog, mm, net, netbuf, os_cfg, sched, storage, watchdog};
+use crate::{audit, integrity, kprint, kprintln, fs, klog, mm, net, netbuf, os_cfg, periph, power, rtc, sched, storage, watchdog};
 use arch::aarch64::{emmc2, exceptions, mailbox};
 use arch::aarch64::mmu;
 use arch::aarch64::smp;
@@ -147,6 +147,7 @@ fn dispatch(cmd: &str) {
             kprintln!("          hexdump <path>, touch <path>, write <path> <text>,");
             kprintln!("          ping <ip>, netstat, ifconfig, temp,");
             kprintln!("          firewall, integrity, audit,");
+            kprintln!("          pwm, rtc, power, crypto, uart,");
             #[cfg(feature = "dynamic-load")]
             kprintln!("          exec <path>,");
             kprintln!("          faulttest, wcet, yield, svc, reboot");
@@ -482,6 +483,56 @@ fn dispatch(cmd: &str) {
             } else {
                 let count = if arg.is_empty() { 20 } else { arg.parse::<usize>().unwrap_or(20) };
                 audit::dump(count);
+            }
+        }
+        "pwm" => {
+            kprintln!("PWM: {} channels, 50 MHz reference", os_cfg::PWM_CHANNELS);
+            kprintln!("  status: {}", if cfg!(feature = "bsp-rpi5") { "RP1 PWM available" } else { "not available (QEMU)" });
+        }
+        "rtc" => {
+            match rtc::get_time() {
+                Ok(dt) => kprintln!("RTC: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                    dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second),
+                Err(_) => kprintln!("RTC: unavailable"),
+            }
+            if rtc::check_alarm() {
+                kprintln!("  alarm: TRIGGERED");
+            } else {
+                kprintln!("  alarm: not set");
+            }
+        }
+        "power" => {
+            match power::get_cpu_freq() {
+                Ok(hz) => kprintln!("CPU freq: {} MHz", hz / 1_000_000),
+                Err(_) => kprintln!("CPU freq: unavailable"),
+            }
+            match power::get_max_freq() {
+                Ok(hz) => kprintln!("max freq: {} MHz", hz / 1_000_000),
+                Err(_) => {}
+            }
+            match power::get_min_freq() {
+                Ok(hz) => kprintln!("min freq: {} MHz", hz / 1_000_000),
+                Err(_) => {}
+            }
+            match power::get_voltage() {
+                Ok(uv) => kprintln!("voltage:  {} mV", uv / 1000),
+                Err(_) => kprintln!("voltage:  unavailable"),
+            }
+        }
+        "crypto" => {
+            let supported = crate::crypto::hw::ArmCryptoEngine::detect();
+            kprintln!("ARMv8 Crypto Extensions: {}", if supported { "available" } else { "not available" });
+            kprintln!("  AES: ECB, CBC, CTR (128/256-bit keys)");
+            kprintln!("  SHA-256: software (FIPS 180-4)");
+            kprintln!("  CRC32: lookup table");
+        }
+        "uart" => {
+            kprintln!("UART ports: {} max", os_cfg::MAX_SERIAL_PORTS);
+            kprintln!("  port 0: console (PL011)");
+            if cfg!(feature = "bsp-rpi5") {
+                kprintln!("  ports 1-5: RP1 UART1-5 (48 MHz ref)");
+            } else {
+                kprintln!("  user ports: not available (QEMU)");
             }
         }
         "yield" => {

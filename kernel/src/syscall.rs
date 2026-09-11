@@ -16,6 +16,13 @@ const SYS_NET: u64 = 11;
 const SYS_SPI: u64 = 12;
 const SYS_I2C: u64 = 13;
 const SYS_GPIO: u64 = 14;
+const SYS_UART: u64 = 15;
+const SYS_PWM: u64 = 16;
+const SYS_RTC: u64 = 17;
+const SYS_DMA: u64 = 18;
+const SYS_USB: u64 = 19;
+const SYS_CRYPTO: u64 = 20;
+const SYS_POWER: u64 = 21;
 
 // --- Error codes (high bit set indicates error) ---
 const E_NOSYS: u64 = u64::MAX;
@@ -60,6 +67,51 @@ const GPIO_SET_MODE: u64 = 0;
 const GPIO_READ: u64 = 1;
 const GPIO_WRITE: u64 = 2;
 const GPIO_SET_PULL: u64 = 3;
+
+// --- UART operation codes (X0) ---
+const UART_OPEN: u64 = 0;
+const UART_WRITE: u64 = 1;
+const UART_READ: u64 = 2;
+const UART_CLOSE: u64 = 3;
+const UART_AVAILABLE: u64 = 4;
+
+// --- PWM operation codes (X0) ---
+const PWM_CONFIGURE: u64 = 0;
+const PWM_SET_DUTY: u64 = 1;
+const PWM_ENABLE: u64 = 2;
+const PWM_DISABLE: u64 = 3;
+
+// --- RTC operation codes (X0) ---
+const RTC_GET_TIME: u64 = 0;
+const RTC_SET_TIME: u64 = 1;
+const RTC_SET_ALARM: u64 = 2;
+const RTC_CLEAR_ALARM: u64 = 3;
+
+// --- DMA operation codes (X0) ---
+const DMA_CONFIGURE: u64 = 0;
+const DMA_START: u64 = 1;
+const DMA_STATUS: u64 = 2;
+const DMA_ABORT: u64 = 3;
+
+// --- USB operation codes (X0) ---
+const USB_ENUMERATE: u64 = 0;
+const USB_DEV_INFO: u64 = 1;
+const USB_BULK_XFER: u64 = 2;
+const USB_INT_XFER: u64 = 3;
+
+// --- Crypto operation codes (X0) ---
+const CRYPTO_AES_ENC: u64 = 0;
+const CRYPTO_AES_DEC: u64 = 1;
+const CRYPTO_SHA256: u64 = 2;
+const CRYPTO_DETECT: u64 = 3;
+
+// --- Power operation codes (X0) ---
+const POWER_GET_FREQ: u64 = 0;
+const POWER_SET_FREQ: u64 = 1;
+const POWER_GET_MAX_FREQ: u64 = 2;
+const POWER_GET_MIN_FREQ: u64 = 3;
+const POWER_GET_VOLTAGE: u64 = 4;
+const POWER_IDLE: u64 = 5;
 
 use crate::os_cfg;
 
@@ -406,6 +458,290 @@ fn dispatch_gpio(op: u64, a1: u64, a2: u64, _a3: u64) -> u64 {
     }
 }
 
+// --- UART syscall dispatch ---
+fn dispatch_uart(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    use crate::periph;
+    use arch::serial::{FlowControl, Parity, SerialConfig, StopBits};
+
+    match op {
+        UART_OPEN => {
+            // a1=port, a2=baud_rate, a3=flags (bits 0-1=parity, bit 2=stop, bit 3=flow)
+            let parity = match a3 & 0x3 {
+                0 => Parity::None,
+                1 => Parity::Odd,
+                2 => Parity::Even,
+                _ => return E_INVAL,
+            };
+            let stop_bits = if a3 & 0x4 != 0 { StopBits::Two } else { StopBits::One };
+            let flow = if a3 & 0x8 != 0 { FlowControl::RtsCts } else { FlowControl::None };
+            let config = SerialConfig {
+                port: a1 as u8,
+                baud_rate: a2 as u32,
+                parity,
+                stop_bits,
+                flow_control: flow,
+            };
+            match periph::serial_open(&config) {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        UART_WRITE => {
+            // a1=port, a2=data_ptr, a3=data_len
+            let data = match unsafe { user_slice(a2, a3 as usize) } {
+                Some(d) => d,
+                None => return E_INVAL,
+            };
+            match periph::serial_write(a1 as u8, data) {
+                Ok(n) => n as u64,
+                Err(_) => E_IO,
+            }
+        }
+        UART_READ => {
+            // a1=port, a2=buf_ptr, a3=buf_len
+            let buf = match unsafe { user_slice_mut(a2, a3 as usize) } {
+                Some(b) => b,
+                None => return E_INVAL,
+            };
+            match periph::serial_read(a1 as u8, buf) {
+                Ok(n) => n as u64,
+                Err(_) => E_IO,
+            }
+        }
+        UART_CLOSE => {
+            // a1=port
+            match periph::serial_close(a1 as u8) {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        UART_AVAILABLE => {
+            // a1=port — returns 0 or 1
+            0 // Non-blocking query not available via periph wrapper
+        }
+        _ => E_NOSYS,
+    }
+}
+
+// --- PWM syscall dispatch ---
+fn dispatch_pwm(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    use crate::periph;
+    use arch::pwm::PwmConfig;
+
+    match op {
+        PWM_CONFIGURE => {
+            // a1=channel, a2=frequency_hz, a3=duty_percent
+            let config = PwmConfig {
+                channel: a1 as u8,
+                frequency_hz: a2 as u32,
+                duty_percent: a3 as u8,
+            };
+            match periph::pwm_configure(&config) {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        PWM_SET_DUTY => {
+            // a1=channel, a2=duty_percent
+            match periph::pwm_set_duty(a1 as u8, a2 as u8) {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        PWM_ENABLE => {
+            // a1=channel
+            match periph::pwm_enable(a1 as u8) {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        PWM_DISABLE => {
+            // a1=channel
+            match periph::pwm_disable(a1 as u8) {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        _ => E_NOSYS,
+    }
+}
+
+// --- RTC syscall dispatch ---
+fn dispatch_rtc(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
+    use crate::rtc;
+    use arch::rtc::DateTime;
+
+    match op {
+        RTC_GET_TIME => {
+            // a1=out_ptr (writes DateTime struct)
+            if a1 == 0 {
+                return E_INVAL;
+            }
+            match rtc::get_time() {
+                Ok(dt) => {
+                    let out = a1 as *mut DateTime;
+                    unsafe { core::ptr::write_unaligned(out, dt); }
+                    0
+                }
+                Err(_) => E_IO,
+            }
+        }
+        RTC_SET_TIME => {
+            // a1=in_ptr (reads DateTime struct)
+            if a1 == 0 {
+                return E_INVAL;
+            }
+            let dt = unsafe { core::ptr::read_unaligned(a1 as *const DateTime) };
+            match rtc::set_time(&dt) {
+                Ok(()) => 0,
+                Err(_) => E_INVAL,
+            }
+        }
+        RTC_SET_ALARM => {
+            // a1=in_ptr (reads DateTime struct)
+            if a1 == 0 {
+                return E_INVAL;
+            }
+            let dt = unsafe { core::ptr::read_unaligned(a1 as *const DateTime) };
+            match rtc::set_alarm(&dt) {
+                Ok(()) => 0,
+                Err(_) => E_INVAL,
+            }
+        }
+        RTC_CLEAR_ALARM => {
+            match rtc::clear_alarm() {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        _ => E_NOSYS,
+    }
+}
+
+// --- DMA syscall dispatch ---
+fn dispatch_dma(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
+    match op {
+        DMA_CONFIGURE | DMA_START | DMA_STATUS | DMA_ABORT => {
+            let _ = a1;
+            E_NOSYS
+        }
+        _ => E_NOSYS,
+    }
+}
+
+// --- USB syscall dispatch ---
+fn dispatch_usb(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
+    match op {
+        USB_ENUMERATE | USB_DEV_INFO | USB_BULK_XFER | USB_INT_XFER => {
+            let _ = a1;
+            E_NOSYS
+        }
+        _ => E_NOSYS,
+    }
+}
+
+// --- Crypto syscall dispatch ---
+fn dispatch_crypto(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    use crate::crypto::hw::ArmCryptoEngine;
+    use arch::crypto_engine::{AesMode, CryptoEngine};
+
+    match op {
+        CRYPTO_AES_ENC | CRYPTO_AES_DEC => {
+            // a1=key_ptr (16 or 32 bytes), a2=input_ptr, a3=output_ptr
+            // Key size and input/output lengths are encoded in the upper bits
+            // For simplicity, this syscall expects 16-byte key + 16-byte blocks
+            let key = match unsafe { user_slice(a1, 16) } {
+                Some(k) => k,
+                None => return E_INVAL,
+            };
+            let input = match unsafe { user_slice(a2, 16) } {
+                Some(i) => i,
+                None => return E_INVAL,
+            };
+            let output = match unsafe { user_slice_mut(a3, 16) } {
+                Some(o) => o,
+                None => return E_INVAL,
+            };
+            let engine = ArmCryptoEngine::new();
+            let iv = [0u8; 16];
+            let result = if op == CRYPTO_AES_ENC {
+                engine.aes_encrypt(key, &iv, input, output, AesMode::Ecb)
+            } else {
+                engine.aes_decrypt(key, &iv, input, output, AesMode::Ecb)
+            };
+            match result {
+                Ok(n) => n as u64,
+                Err(_) => E_IO,
+            }
+        }
+        CRYPTO_SHA256 => {
+            // a1=input_ptr, a2=input_len, a3=output_ptr (32 bytes)
+            let input = match unsafe { user_slice(a1, a2 as usize) } {
+                Some(i) => i,
+                None => return E_INVAL,
+            };
+            let output = match unsafe { user_slice_mut(a3, 32) } {
+                Some(o) => o,
+                None => return E_INVAL,
+            };
+            let engine = ArmCryptoEngine::new();
+            let out_arr: &mut [u8; 32] = output.try_into().unwrap();
+            match engine.sha256(input, out_arr) {
+                Ok(()) => 0,
+                Err(_) => E_IO,
+            }
+        }
+        CRYPTO_DETECT => {
+            if ArmCryptoEngine::detect() { 1 } else { 0 }
+        }
+        _ => E_NOSYS,
+    }
+}
+
+// --- Power syscall dispatch ---
+fn dispatch_power(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
+    use crate::power;
+
+    match op {
+        POWER_GET_FREQ => {
+            match power::get_cpu_freq() {
+                Ok(hz) => hz as u64,
+                Err(_) => E_IO,
+            }
+        }
+        POWER_SET_FREQ => {
+            // a1=frequency in Hz
+            match power::set_cpu_freq(a1 as u32) {
+                Ok(actual) => actual as u64,
+                Err(_) => E_IO,
+            }
+        }
+        POWER_GET_MAX_FREQ => {
+            match power::get_max_freq() {
+                Ok(hz) => hz as u64,
+                Err(_) => E_IO,
+            }
+        }
+        POWER_GET_MIN_FREQ => {
+            match power::get_min_freq() {
+                Ok(hz) => hz as u64,
+                Err(_) => E_IO,
+            }
+        }
+        POWER_GET_VOLTAGE => {
+            match power::get_voltage() {
+                Ok(uv) => uv as u64,
+                Err(_) => E_IO,
+            }
+        }
+        POWER_IDLE => {
+            power::cpu_idle();
+            0
+        }
+        _ => E_NOSYS,
+    }
+}
+
 fn cap_for_syscall(nr: u64) -> u32 {
     match nr {
         SYS_YIELD => sched::CAP_YIELD,
@@ -420,6 +756,13 @@ fn cap_for_syscall(nr: u64) -> u32 {
         SYS_SPI => sched::CAP_SPI,
         SYS_I2C => sched::CAP_I2C,
         SYS_GPIO => sched::CAP_GPIO,
+        SYS_UART => sched::CAP_UART,
+        SYS_PWM => sched::CAP_PWM,
+        SYS_RTC => sched::CAP_RTC,
+        SYS_DMA => sched::CAP_DMA,
+        SYS_USB => sched::CAP_USB,
+        SYS_CRYPTO => sched::CAP_CRYPTO,
+        SYS_POWER => sched::CAP_POWER,
         _ => 0,
     }
 }
@@ -437,6 +780,9 @@ pub fn dispatch(tf: &mut TrapFrame) {
             match syscall_nr {
                 SYS_FS => "FS", SYS_NET => "NET", SYS_SPI => "SPI",
                 SYS_I2C => "I2C", SYS_GPIO => "GPIO",
+                SYS_UART => "UART", SYS_PWM => "PWM", SYS_RTC => "RTC",
+                SYS_DMA => "DMA", SYS_USB => "USB", SYS_CRYPTO => "CRYPTO",
+                SYS_POWER => "POWER",
                 _ => "syscall",
             });
         tf.regs[0] = E_PERM;
@@ -486,6 +832,13 @@ pub fn dispatch(tf: &mut TrapFrame) {
         SYS_SPI => dispatch_spi(a0, a1, a2, a3),
         SYS_I2C => dispatch_i2c(a0, a1, a2, a3),
         SYS_GPIO => dispatch_gpio(a0, a1, a2, a3),
+        SYS_UART => dispatch_uart(a0, a1, a2, a3),
+        SYS_PWM => dispatch_pwm(a0, a1, a2, a3),
+        SYS_RTC => dispatch_rtc(a0, a1, a2, a3),
+        SYS_DMA => dispatch_dma(a0, a1, a2, a3),
+        SYS_USB => dispatch_usb(a0, a1, a2, a3),
+        SYS_CRYPTO => dispatch_crypto(a0, a1, a2, a3),
+        SYS_POWER => dispatch_power(a0, a1, a2, a3),
         _ => {
             kprintln!("[syscall] unknown syscall {}", syscall_nr);
             E_NOSYS

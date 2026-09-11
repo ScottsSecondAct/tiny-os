@@ -63,6 +63,13 @@ pub const CAP_NET: u32      = 1 << 11;
 pub const CAP_SPI: u32      = 1 << 12;
 pub const CAP_I2C: u32      = 1 << 13;
 pub const CAP_GPIO: u32     = 1 << 14;
+pub const CAP_UART: u32     = 1 << 15;
+pub const CAP_PWM: u32      = 1 << 16;
+pub const CAP_RTC: u32      = 1 << 17;
+pub const CAP_DMA: u32      = 1 << 18;
+pub const CAP_USB: u32      = 1 << 19;
+pub const CAP_CRYPTO: u32   = 1 << 20;
+pub const CAP_POWER: u32    = 1 << 21;
 pub const CAP_ALL: u32      = 0xFFFFFFFF;
 pub const CAP_USER_DEFAULT: u32 = CAP_YIELD | CAP_DELAY | CAP_WRITE | CAP_TASKID
     | CAP_UPTIME | CAP_EXIT | CAP_TEMP | CAP_FS | CAP_NET;
