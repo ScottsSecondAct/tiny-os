@@ -18,16 +18,23 @@ pub enum TaskState {
     Suspended = 4,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum WaitResult {
+    Ok,
+    Timeout,
+}
+
 #[repr(C)]
 pub struct Tcb {
     pub sp: u64,
     pub id: u8,
     pub priority: u8,
+    pub base_priority: u8,
     pub state: TaskState,
+    pub wait_result: WaitResult,
     pub ticks_remaining: u32,
     pub delay_ticks: u32,
     pub name: &'static str,
-    // Linked-list pointers for ready queue (indices, 0xFF = none).
     pub next: u8,
 }
 
@@ -37,7 +44,9 @@ impl Tcb {
             sp: 0,
             id: 0,
             priority: 255,
+            base_priority: 255,
             state: TaskState::Dormant,
+            wait_result: WaitResult::Ok,
             ticks_remaining: 0,
             delay_ticks: 0,
             name: "",
@@ -158,12 +167,12 @@ fn idle_entry(_arg: usize) -> ! {
 }
 
 /// Critical section guard. Masks IRQs on construction, restores on drop.
-struct CriticalSection {
+pub(crate) struct CriticalSection {
     daif: u64,
 }
 
 impl CriticalSection {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         let daif: u64;
         unsafe {
             core::arch::asm!("mrs {}, daif", out(reg) daif);
@@ -194,7 +203,9 @@ pub fn init() {
         sp,
         id,
         priority: 255,
+        base_priority: 255,
         state: TaskState::Ready,
+        wait_result: WaitResult::Ok,
         ticks_remaining: 0,
         delay_ticks: 0,
         name: "idle",
@@ -223,7 +234,9 @@ pub fn task_create(
         sp,
         id,
         priority,
+        base_priority: priority,
         state: TaskState::Ready,
+        wait_result: WaitResult::Ok,
         ticks_remaining: TIMESLICE_TICKS,
         delay_ticks: 0,
         name,
@@ -377,6 +390,7 @@ pub fn tick() {
         if s.tasks[i].state == TaskState::Blocked && s.tasks[i].delay_ticks > 0 {
             s.tasks[i].delay_ticks -= 1;
             if s.tasks[i].delay_ticks == 0 {
+                s.tasks[i].wait_result = WaitResult::Timeout;
                 s.tasks[i].state = TaskState::Ready;
                 s.enqueue(i as u8);
                 if s.tasks[i].priority < cur_prio {
@@ -505,6 +519,101 @@ fn remove_from_ready(s: &mut Scheduler, id: u8) {
             return;
         }
         prev = next;
+    }
+}
+
+// --- Public APIs for sync primitives ---
+
+pub fn current_id() -> u8 {
+    sched().current
+}
+
+pub fn get_priority(id: u8) -> u8 {
+    sched().tasks[id as usize].priority
+}
+
+pub fn get_base_priority(id: u8) -> u8 {
+    sched().tasks[id as usize].base_priority
+}
+
+pub fn get_state(id: u8) -> TaskState {
+    sched().tasks[id as usize].state
+}
+
+pub fn get_wait_result() -> WaitResult {
+    let s = sched();
+    if s.current != 0xFF {
+        s.tasks[s.current as usize].wait_result
+    } else {
+        WaitResult::Ok
+    }
+}
+
+pub fn set_task_wait_result(id: u8, result: WaitResult) {
+    sched().tasks[id as usize].wait_result = result;
+}
+
+/// Block the current task indefinitely (until explicitly woken).
+pub fn block_current() {
+    let s = sched();
+    if s.current == 0xFF || !s.started {
+        return;
+    }
+    let idx = s.current as usize;
+    s.tasks[idx].delay_ticks = 0;
+    s.tasks[idx].state = TaskState::Blocked;
+    schedule();
+}
+
+/// Block the current task with a timeout in ticks. 0 = infinite wait.
+pub fn block_current_timeout(ticks: u32) {
+    let s = sched();
+    if s.current == 0xFF || !s.started {
+        return;
+    }
+    let idx = s.current as usize;
+    s.tasks[idx].delay_ticks = ticks;
+    s.tasks[idx].state = TaskState::Blocked;
+    schedule();
+}
+
+/// Wake a blocked task and make it ready. Triggers reschedule if appropriate.
+pub fn wake_task(id: u8) {
+    let s = sched();
+    let idx = id as usize;
+    if idx >= MAX_TASKS || s.tasks[idx].state != TaskState::Blocked {
+        return;
+    }
+    s.tasks[idx].state = TaskState::Ready;
+    s.tasks[idx].delay_ticks = 0;
+    s.enqueue(id);
+
+    if s.started && s.current != 0xFF {
+        let cur_prio = s.tasks[s.current as usize].priority;
+        if s.tasks[idx].priority < cur_prio {
+            schedule();
+        }
+    }
+}
+
+/// Change a task's effective priority (for PIP/PCP).
+pub fn set_priority(id: u8, prio: u8) {
+    let s = sched();
+    let idx = id as usize;
+    if idx >= MAX_TASKS {
+        return;
+    }
+    let old_prio = s.tasks[idx].priority;
+    if prio == old_prio {
+        return;
+    }
+
+    if s.tasks[idx].state == TaskState::Ready {
+        remove_from_ready(s, id);
+        s.tasks[idx].priority = prio;
+        s.enqueue(id);
+    } else {
+        s.tasks[idx].priority = prio;
     }
 }
 

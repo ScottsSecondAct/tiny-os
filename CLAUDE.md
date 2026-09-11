@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 4: Multitasking & Context Switch** — complete. 256-level fixed-priority preemptive scheduler with O(1) bitmap dispatch, AArch64 context switch, round-robin among equal-priority tasks, delay-based blocking, timer-driven preemption. Next up: Phase 5 (Synchronization Primitives).
+**Phase 5: Synchronization Primitives** — complete. Mutex with PIP/PCP, binary/counting semaphores, 32-bit event flags, const-generic message queues, timeout support on all blocking operations. Built on Phase 4's preemptive scheduler with WaitResult/base_priority extensions. Next up: Phase 6 (Driver Framework & Logging).
 
 ## Target Hardware
 
@@ -79,6 +79,12 @@ tiny_os/
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
 │   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, yield, svc, reboot)
 │   │   ├── sched.rs        # 256-level fixed-priority scheduler, TCB, delay, context switch orchestration
+│   │   ├── sync/           # Synchronization primitives subsystem
+│   │   │   ├── mod.rs      # WaitQueue: priority-sorted waiter array with lazy cleanup
+│   │   │   ├── mutex.rs    # Mutex with PIP, PCP, recursive locking, timeout
+│   │   │   ├── semaphore.rs # Counting/binary semaphore with timeout
+│   │   │   ├── events.rs   # 32-bit event flags with Any/All wait modes
+│   │   │   └── msgqueue.rs # Const-generic message queue with send/recv blocking
 │   │   └── mm/             # Memory management subsystem
 │   │       ├── mod.rs      # MM init: RAM discovery, PMM, MMU enable, heap seeding
 │   │       ├── dtb.rs      # Minimal FDT parser for /memory node
@@ -195,13 +201,27 @@ tiny_os/
 - [x] Shell `tasks` command showing task list with ID, name, priority, state
 - [x] Verified on QEMU: multi-task context switching, timer accuracy 249/250 ticks
 
-## Phase 5 Deliverables Checklist (next)
+### Phase 5 — Synchronization Primitives ✅
 
-- [ ] Mutex with Priority Inheritance Protocol (PIP) and Priority Ceiling Protocol (PCP)
-- [ ] Binary and counting semaphores
-- [ ] Message queue (fixed-size, bounded)
-- [ ] Event flags
-- [ ] Timeout support on all blocking operations
+- [x] Mutex with Priority Inheritance Protocol (PIP) and Priority Ceiling Protocol (PCP)
+- [x] Recursive mutex locking (max nest depth 8)
+- [x] Binary and counting semaphores with configurable max count
+- [x] 32-bit event flags with Any/All wait modes, up to 16 concurrent waiters
+- [x] Const-generic message queue `MsgQueue<MSG_SIZE, CAPACITY>` with circular buffer
+- [x] Timeout support on all blocking operations (lock_timeout, wait_timeout, send_timeout, recv_timeout)
+- [x] Non-blocking try variants (try_lock, try_wait, try_send, try_recv)
+- [x] WaitQueue: priority-ordered waiter array with lazy stale-entry cleanup
+- [x] Scheduler extended with WaitResult enum, base_priority tracking, public sync APIs
+- [x] Demo tasks: mutex-protected shared counter + binary semaphore signaling between tasks
+- [x] Verified on QEMU: PIP mutex, semaphore sync, correct counter handoff across tasks
+
+## Phase 6 Deliverables Checklist (next)
+
+- [ ] Driver trait registry with probe/remove lifecycle
+- [ ] GPIO driver via RP1 (`rp1_gpio.rs`)
+- [ ] SPI and I²C drivers via RP1 (basic)
+- [ ] `klog` subsystem: log levels (ERROR, WARN, INFO, DEBUG, TRACE), timestamps, module tags
+- [ ] Ring-buffer log drain (accessible via shell)
 - [ ] Per-task execution-time budget enforcement (`os_task_set_budget`, `os_task_get_remaining`)
 - [ ] Deadline-miss detection with `os_hook_deadline_miss` callback
 - [ ] Task criticality levels (SAFETY_CRITICAL, MISSION_CRITICAL, STANDARD, BEST_EFFORT)

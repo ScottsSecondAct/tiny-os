@@ -82,7 +82,15 @@ tiny_os/
         │                   #   tasks, yield, svc, reboot; uses sched::delay() polling
         ├── sched.rs        # 256-level fixed-priority preemptive scheduler: TCB array,
         │                   #   per-priority FIFO ready queues, 4×u64 bitmap for O(1)
-        │                   #   dispatch, delay-based blocking, CriticalSection RAII guard
+        │                   #   dispatch, delay-based blocking, CriticalSection RAII guard,
+        │                   #   WaitResult/base_priority for sync, public block/wake/set_priority
+        ├── sync/           # Synchronization primitives subsystem
+        │   ├── mod.rs      # WaitQueue: priority-sorted waiter array, lazy stale cleanup
+        │   ├── mutex.rs    # Mutex with PIP/PCP, recursive locking (max depth 8), timeout
+        │   ├── semaphore.rs # Counting/binary semaphore with timeout and try_wait
+        │   ├── events.rs   # 32-bit event flags: Any/All wait modes, up to 16 waiters
+        │   └── msgqueue.rs # Const-generic MsgQueue<MSG_SIZE, CAPACITY>: circular buffer,
+        │                   #   separate send/recv wait queues, timeout + try variants
         └── mm/             # Memory management subsystem
             ├── mod.rs      # MM init: DTB RAM discovery → PMM → MMU enable → heap seed
             ├── dtb.rs      # Minimal FDT parser: extracts /memory node reg property

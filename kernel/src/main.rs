@@ -8,10 +8,13 @@ mod exceptions;
 mod mm;
 pub mod sched;
 mod shell;
+pub mod sync;
 
 use arch::aarch64::{exceptions as exc, gic, timer};
 use arch::uart::UartDriver;
 use bsp::PlatformUart;
+use sync::mutex::{Mutex, MutexProtocol};
+use sync::semaphore::Semaphore;
 
 #[repr(align(16))]
 struct TaskStack<const N: usize>([u8; N]);
@@ -20,6 +23,14 @@ static mut SHELL_STACK: TaskStack<16384> = TaskStack([0; 16384]);
 static mut DEMO_STACK_A: TaskStack<8192> = TaskStack([0; 8192]);
 static mut DEMO_STACK_B: TaskStack<8192> = TaskStack([0; 8192]);
 
+static SHARED_MUTEX: Mutex = Mutex::new(MutexProtocol::PriorityInheritance);
+struct SyncU64(core::cell::UnsafeCell<u64>);
+// SAFETY: Access protected by SHARED_MUTEX.
+unsafe impl Sync for SyncU64 {}
+static SHARED_COUNTER: SyncU64 = SyncU64(core::cell::UnsafeCell::new(0));
+
+static SEM_SIGNAL: Semaphore = Semaphore::binary(0);
+
 fn shell_task(_arg: usize) -> ! {
     let mut uart = PlatformUart::new();
     uart.init();
@@ -27,20 +38,31 @@ fn shell_task(_arg: usize) -> ! {
 }
 
 fn demo_task_a(_arg: usize) -> ! {
-    let mut counter: u64 = 0;
     loop {
-        counter += 1;
-        kprintln!("[task-a] count={}", counter);
+        SHARED_MUTEX.lock().expect("lock failed");
+        // SAFETY: Protected by SHARED_MUTEX.
+        let counter = unsafe { &mut *SHARED_COUNTER.0.get() };
+        *counter += 1;
+        let val = *counter;
+        SHARED_MUTEX.unlock().expect("unlock failed");
+
+        kprintln!("[task-a] counter={}", val);
+        SEM_SIGNAL.post().ok();
         sched::delay(2000);
     }
 }
 
 fn demo_task_b(_arg: usize) -> ! {
-    let mut counter: u64 = 0;
     loop {
-        counter += 1;
-        kprintln!("[task-b] count={}", counter);
-        sched::delay(3000);
+        SEM_SIGNAL.wait().expect("sem wait failed");
+
+        SHARED_MUTEX.lock().expect("lock failed");
+        // SAFETY: Protected by SHARED_MUTEX.
+        let val = unsafe { *SHARED_COUNTER.0.get() };
+        SHARED_MUTEX.unlock().expect("unlock failed");
+
+        kprintln!("[task-b] saw counter={}", val);
+        sched::delay(500);
     }
 }
 
@@ -50,7 +72,7 @@ pub extern "C" fn kmain() -> ! {
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os Phase 4 boot");
+    kprintln!("tiny_os Phase 5 boot");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
