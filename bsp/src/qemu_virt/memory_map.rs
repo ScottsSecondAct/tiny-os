@@ -11,6 +11,9 @@ pub const GIC_CPU_BASE: usize = 0xFF84_2000;
 pub const RAM_BASE: usize = 0;
 pub const RAM_SIZE_DEFAULT: usize = 0x4000_0000; // 1 GB
 
+/// BCM2711 VideoCore mailbox base address.
+pub const MAILBOX_BASE: usize = 0xFE00_B880;
+
 /// BCM2711 EMMC2 (Arasan SDHCI) base address.
 pub const EMMC2_BASE: usize = 0xFE34_0000;
 

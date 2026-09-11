@@ -11,6 +11,7 @@ pub mod klog;
 mod mm;
 pub mod netbuf;
 pub mod sched;
+pub mod sensor;
 mod shell;
 pub mod syscall;
 pub mod spinlock;
@@ -21,7 +22,7 @@ pub mod sync;
 mod user_tasks;
 pub mod watchdog;
 
-use arch::aarch64::{emmc2, exceptions as exc, gic, mmu, timer, smp};
+use arch::aarch64::{emmc2, exceptions as exc, gic, mailbox, mmu, timer, smp};
 use arch::uart::UartDriver;
 use bsp::PlatformUart;
 use sched::Criticality;
@@ -40,6 +41,7 @@ static mut DEMO_STACK_B: TaskStack<8192> = TaskStack([0; 8192]);
 static mut WATCHDOG_STACK: TaskStack<4096> = TaskStack([0; 4096]);
 static mut HEALTH_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut NET_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut SENSOR_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut USER_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 #[repr(align(4096))]
 struct UserStack([u8; 16384]);
@@ -167,6 +169,9 @@ pub extern "C" fn kmain() -> ! {
     let (nb_total, nb_free) = netbuf::pool_stats();
     kprintln!("netbuf: {} buffers ({} free)", nb_total, nb_free);
 
+    // Initialize VideoCore mailbox for temperature sensor.
+    mailbox::init(bsp::MAILBOX_BASE);
+
     // Try EMMC2 SDHCI first; fall back to ramdisk for QEMU.
     match emmc2::init(bsp::EMMC2_BASE) {
         Ok(()) => {
@@ -242,6 +247,11 @@ pub extern "C" fn kmain() -> ! {
     let net_stack = unsafe { &mut NET_STACK.0[..] };
     sched::task_create("net", 5, Criticality::Standard, net_stack, net::net_task, 0)
         .expect("failed to create net task");
+
+    // Create sensor monitoring task.
+    let sensor_stack = unsafe { &mut SENSOR_STACK.0[..] };
+    sched::task_create("sensor", 8, Criticality::Standard, sensor_stack, sensor::sensor_task, 0)
+        .expect("failed to create sensor task");
 
     // Create EL0 user demo task.
     let user_entry = user_tasks::user_demo as *const () as usize;
