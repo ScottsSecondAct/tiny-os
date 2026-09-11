@@ -37,7 +37,11 @@ This guide covers everything you need to write, build, and run applications on t
 │  │  → denied? return E_PERM + audit log                │   │
 │  ├──────────────────────────────────────────────────────┤   │
 │  │ Syscall Dispatch (X8=nr, X0-X1=args, X0=return)     │   │
-│  │  → yield, delay, write, task_id, uptime, exit, temp │   │
+│  │  → basic: yield, delay, write, task_id, uptime,     │   │
+│  │    exit, temp                                       │   │
+│  │  → subsystem: fs, net, spi, i2c, gpio               │   │
+│  │  → peripheral: uart, pwm, rtc, dma, usb, crypto,    │   │
+│  │    power                                            │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -110,6 +114,32 @@ Syscalls are invoked via `SVC #0`. The syscall number goes in register **X8**, a
 | 5 | `SYS_EXIT` | — / (no return) | — | Terminate the current task |
 | 6 | `SYS_TEMPERATURE` | — / millidegrees C | — | Read SoC temperature (u64::MAX if unavailable) |
 
+### Subsystem Syscalls
+
+Subsystem syscalls multiplex multiple operations through a single syscall number. X0 selects the operation, X1-X3 carry arguments, and X0 returns the result.
+
+| # | Name | Operations | Required Capability |
+|---|------|-----------|---------------------|
+| 10 | `SYS_FS` | open, read, write, close, readdir_open, readdir_next | `CAP_FS` |
+| 11 | `SYS_NET` | socket, bind, connect, sendto, recvfrom, close | `CAP_NET` |
+| 12 | `SYS_SPI` | open, transfer, write, read, close | `CAP_SPI` |
+| 13 | `SYS_I2C` | open, write, read, write_read, close | `CAP_I2C` |
+| 14 | `SYS_GPIO` | set_mode, read, write, set_pull | `CAP_GPIO` |
+
+### Peripheral Syscalls
+
+Peripheral syscalls (Phase 12) follow the same multiplexed pattern. These require explicit capability grants — none are included in `CAP_USER_DEFAULT`.
+
+| # | Name | Operations | Required Capability |
+|---|------|-----------|---------------------|
+| 15 | `SYS_UART` | open, write, read, close, available | `CAP_UART` |
+| 16 | `SYS_PWM` | configure, set_duty, enable, disable | `CAP_PWM` |
+| 17 | `SYS_RTC` | get_time, set_time, set_alarm, clear_alarm, get_alarm | `CAP_RTC` |
+| 18 | `SYS_DMA` | configure, start, complete, abort | `CAP_DMA` |
+| 19 | `SYS_USB` | enumerate, dev_info, bulk_transfer, interrupt_transfer | `CAP_USB` |
+| 20 | `SYS_CRYPTO` | aes_encrypt, aes_decrypt, sha256, detect | `CAP_CRYPTO` |
+| 21 | `SYS_POWER` | get_freq, set_freq, get_min_freq, get_max_freq, get_voltage | `CAP_POWER` |
+
 ### Syscall Stub Implementation
 
 Every user-space application needs a syscall stub. This is the fundamental building block — a single inline assembly function that all syscall wrappers call:
@@ -173,7 +203,7 @@ Every task has a capability bitmask that controls which syscalls it may invoke. 
 | Task Type | Capability Set | Description |
 |-----------|---------------|-------------|
 | Kernel tasks | `CAP_ALL` (0xFFFFFFFF) | Unrestricted access to all syscalls |
-| User tasks | `CAP_USER_DEFAULT` | Basic + FS + NET; excludes SPI, I2C, GPIO |
+| User tasks | `CAP_USER_DEFAULT` | Basic + FS + NET; excludes hardware peripherals |
 
 ### User Default Capabilities
 
@@ -193,8 +223,15 @@ User tasks created with `task_create_user()` receive `CAP_USER_DEFAULT`, which i
 | `CAP_SPI` | SYS_SPI (12) | **No** |
 | `CAP_I2C` | SYS_I2C (13) | **No** |
 | `CAP_GPIO` | SYS_GPIO (14) | **No** |
+| `CAP_UART` | SYS_UART (15) | **No** |
+| `CAP_PWM` | SYS_PWM (16) | **No** |
+| `CAP_RTC` | SYS_RTC (17) | **No** |
+| `CAP_DMA` | SYS_DMA (18) | **No** |
+| `CAP_USB` | SYS_USB (19) | **No** |
+| `CAP_CRYPTO` | SYS_CRYPTO (20) | **No** |
+| `CAP_POWER` | SYS_POWER (21) | **No** |
 
-SPI, I2C, and GPIO access is restricted because these peripherals can directly control hardware. To grant these to a user task, the kernel code creating the task must set the capabilities explicitly.
+All hardware peripheral capabilities (SPI, I2C, GPIO, UART, PWM, RTC, DMA, USB, Crypto, Power) are excluded from the default user set because these peripherals can directly control hardware. To grant these to a user task, the kernel code creating the task must set the capabilities explicitly.
 
 ### Handling E_PERM
 

@@ -117,7 +117,7 @@ The BCM2712 on the Raspberry Pi 5 uses a 35-bit physical address space. The GPU 
 | GPU Reserved | 0x3C00_0000 - 0x3FFF_FFFF | 64 MB | VideoCore VII firmware (do not access) |
 | Peripherals (Legacy) | 0xFE00_0000 - 0xFEFF_FFFF | 16 MB | BCM2712 legacy peripheral registers |
 | GIC-400 | 0xFF84_0000 - 0xFF84_FFFF | 64 KB | GIC Distributor and CPU interface registers |
-| RP1 (via PCIe) | 0x1F_0000_0000 - 0x1F_0040_0000 | 4 MB | RP1 peripheral registers (UART, SPI, I2C, GPIO) |
+| RP1 (via PCIe) | 0x1F_0000_0000 - 0x1F_0040_0000 | 4 MB | RP1 peripheral registers (UART, SPI, I2C, GPIO, PWM, Ethernet, USB) |
 ### 2.4 Boot Sequence
 
 The Raspberry Pi 5 boot process is managed by the VideoCore GPU firmware, which loads the kernel image from the SD card (or NVMe SSD if configured for NVMe boot). tiny-os is provided as kernel8.img (a flat AArch64 binary) with an accompanying config.txt. The firmware's OS compatibility check must be disabled for bare-metal kernels by setting os_check=0 in config.txt. The boot sequence proceeds as follows:
@@ -522,14 +522,20 @@ tiny-os ships with drivers for the Raspberry Pi 5 peripherals accessible via the
 
 | Driver | Peripheral | Bus | Features |
 | --- | --- | --- | --- |
-| os_drv_uart | PL011 UART (RP1) | RP1 | Interrupt-driven TX/RX, configurable baud (up to 4 Mbps), hardware flow control |
+| os_drv_uart | PL011 UART0 (RP1) | RP1 | Interrupt-driven TX/RX, configurable baud (up to 4 Mbps), hardware flow control |
+| os_drv_serial | PL011 UART1-5 (RP1) | RP1 | 5 additional serial ports, 48 MHz ref clock, baud rate divisor, 800-byte stride |
 | os_drv_spi | SPI (RP1) | RP1 | Master mode, DMA-capable, configurable clock up to 50 MHz, multiple chip selects |
 | os_drv_i2c | I2C (RP1) | RP1 | Master mode, 100/400/1000 kHz, 10-bit addressing, timeout handling |
 | os_drv_gpio | GPIO (RP1) | RP1 | Pin configuration, interrupt-on-change (rising/falling/both), debounce, pull-up/down |
-| os_drv_eth | Gigabit Ethernet (RP1) | RP1 | Interrupt-driven MAC, scatter-gather DMA, MDIO for PHY management |
-| os_drv_sd | SD/SDIO (Arasan) | BCM2712 | SDR104 high-speed mode, interrupt-driven, DMA transfers |
+| os_drv_pwm | PWM (RP1) | RP1 | 2-channel, 50 MHz reference clock, frequency/duty calculation, MSEN mode |
+| os_drv_eth | Gigabit Ethernet (RP1) | RP1 | Synopsys GMAC, scatter-gather DMA, MDIO for PHY management (skeleton) |
+| os_drv_usb | USB 3.0 xHCI (RP1) | RP1 | Host controller enumeration, bulk/interrupt transfers (skeleton) |
+| os_drv_sd | SD/SDIO (Arasan) | BCM2712 | SDR104 UHS-I mode (208 MHz, 1.8V signaling), ADMA2 DMA, graceful fallback to 25 MHz PIO |
 | os_drv_pcie | PCIe 2.0 x1 | BCM2712 | Root complex management, BAR configuration, MSI interrupt routing |
-| os_drv_mailbox | VideoCore Mailbox | BCM2712 | Property tag interface for firmware queries (clock rates, board revision, MAC address) |
+| os_drv_mailbox | VideoCore Mailbox | BCM2712 | Property tag interface for firmware queries (clock rates, board revision, MAC address, DVFS) |
+| os_drv_rtc | Software RTC | Kernel | Monotonic tick-based time tracking, AtomicU64 epoch, alarm support, datetime validation |
+| os_drv_crypto | ARMv8 Crypto Extensions | CPU | AES-128/256 ECB/CBC/CTR via hardware AESE/AESD instructions, software SHA-256 |
+| os_drv_power | DVFS Power Management | BCM2712 | CPU frequency get/set via VideoCore mailbox, min/max/voltage query, WFI idle |
 
 ### 9.3 Zero-Copy DMA and Networking
 
@@ -770,15 +776,19 @@ The use of unsafe code is minimized and confined to well-documented modules: MMU
 
 ### 12.2 Testing
 
-tiny-os includes a comprehensive test suite organized by verification level:
+tiny-os uses a two-tier test infrastructure to accommodate the bare-metal constraint (the workspace default target is `aarch64-unknown-none`, which has no `std`):
 
-**Unit tests:** Each kernel module is tested using a QEMU virt machine target (aarch64) with GICv2 emulation, achieving over 95% branch coverage. Tests cover normal paths, error paths, and boundary conditions for all public APIs.
+**Host-side unit tests (51 tests):** Pure-logic algorithms are re-implemented in `tests/host/` and tested natively with `cargo test`. These verify checksums, header parsing, cryptographic primitives, and datetime conversions without requiring QEMU or hardware. Tests are organized by module: IPv4 checksum (12 tests), Ethernet frame parsing (7 tests), MBR partition parsing (7 tests), SHA-256 and HMAC-SHA256 (11 tests including NIST vectors and RFC 4231), CRC32 (6 tests including check value 0xCBF43926), and RTC datetime conversions (7 tests including epoch, leap year, roundtrip, and boundary cases).
+
+**QEMU integration tests (15 checks):** Boot the kernel on QEMU `raspi4b`, capture serial output, and verify expected patterns (kernel banner, MMU, timer, scheduler, SMP cores, network, filesystem, user mode, shell prompt, no panic). Run via `make test-qemu` or `pwsh tests/qemu/run_tests.ps1`.
+
+**Build matrix verification:** All 6 BSP × feature configurations are tested: `bsp-qemu`, `bsp-rpi5`, each with default, `safety-critical`, and `dynamic-load` feature sets.
 
 **Integration tests:** Multi-task scenarios exercising IPC, preemption, priority inheritance, deadline handling, and SMP task migration, run on both QEMU and physical Raspberry Pi 5 hardware.
 
 **Stress tests:** Continuous operation under maximum load (32 tasks, all cores active, sustained IPC traffic) for 72+ hours with timing and memory validation.
 
-**Fault injection:** Systematic injection of stack overflows, invalid memory accesses, invalid syscall arguments, and ASID exhaustion to verify graceful error handling and the structured shutdown sequence (11.3).
+**Fault injection:** Systematic injection of stack overflows, invalid memory accesses, invalid syscall arguments, pool exhaustion, budget overruns, and criticality switches to verify graceful error handling, health monitoring hooks, and the structured shutdown sequence (11.3). 8 fault injection tests in `kernel::fault_inject`.
 
 **Miri and ASAN:** Unsafe code sections are exercised under Miri (where feasible) and address sanitization to detect undefined behavior.
 
@@ -951,13 +961,54 @@ DMA-capable peripherals can bypass MMU protections by writing directly to physic
 - DMA descriptor rings include buffer length fields; the driver validates that hardware does not write beyond the allocated buffer size
 - Future: if BCM2712 SMMU (System MMU) support is confirmed, DMA transactions will be restricted to their assigned IOVA ranges
 
-#### 12.6.5 Secure Boot Chain (Future)
+#### 12.6.5 Capability-Based Syscall Access Control (Implemented)
+
+Every task has a 32-bit capability bitmask that controls which syscalls it may invoke. The kernel checks the bitmask before dispatching any syscall. A denied syscall returns `E_PERM` and logs a `CapabilityDenied` audit event.
+
+| Capability Set | Bits | Description |
+| --- | --- | --- |
+| `CAP_USER_DEFAULT` | 9 bits | Basic syscalls (yield, delay, write, task_id, uptime, exit, temp) + filesystem + network |
+| `CAP_ALL` | 32 bits | Unrestricted; granted to kernel tasks |
+| Hardware peripherals | 10 bits | SPI, I2C, GPIO, UART, PWM, RTC, DMA, USB, Crypto, Power — excluded from user default |
+
+Hardware peripheral capabilities are excluded from the default user set because these peripherals can directly control hardware. To grant them to a user task, the kernel code creating the task must set the capabilities explicitly.
+
+#### 12.6.6 Cryptographic Primitives (Implemented)
+
+tiny-os includes a cryptographic subsystem (`kernel::crypto`) providing:
+
+- **SHA-256** (FIPS 180-4): runtime hash and compile-time `const fn` variant for password hashing without plaintext in the binary
+- **HMAC-SHA256** (RFC 2104): keyed-hash message authentication with constant-time comparison to prevent timing attacks
+- **CRC32**: precomputed 256-entry lookup table for data integrity checks
+- **ARMv8 Crypto Extensions**: hardware-accelerated AES-128/256 in ECB, CBC, and CTR modes using AESE/AESD/AESMC/AESIMC instructions, with runtime detection via ID_AA64ISAR0_EL1 and software fallback
+
+#### 12.6.7 Runtime Code Integrity (Implemented)
+
+The kernel computes a CRC32 checksum of the `.text` section (from `_start` to `__data_start`) at boot and stores it as a reference value. The health monitor periodically re-verifies this checksum to detect runtime code corruption. A mismatch triggers `os_hook_health_check_failed("code_integrity")` and logs an `IntegrityFail` audit event.
+
+#### 12.6.8 Network Firewall (Implemented)
+
+An allowlist-based packet filter (`kernel::net::firewall`) provides default-deny network security when enabled. The firewall supports up to 16 rules matching on source IP/mask, destination port, and protocol (TCP/UDP/ICMP). Atomic pass/drop counters track filtering statistics. Rules are managed via the `firewall` shell command.
+
+#### 12.6.9 Shell Authentication (Implemented)
+
+When `OS_CFG_SHELL_AUTH_EN` is true (auto-enabled in safety-critical mode), the shell requires password authentication before granting access. The password is stored as a compile-time SHA-256 hash — no plaintext exists in the binary. After 3 failed attempts, the shell locks out for 30 seconds.
+
+#### 12.6.10 Persistent Audit Log (Implemented)
+
+A security event log (`kernel::audit`) records 10 event types (Boot, Shutdown, AuthOk, AuthFail, FirewallDrop, CapabilityDenied, IntegrityOk, IntegrityFail, TaskCreated, TaskTerminated) in a 64-entry ring buffer. Each entry records tick, core_id, task_id, event type, and a 40-byte detail string. The log can be persisted to the FAT32 filesystem via `audit persist`.
+
+#### 12.6.11 JTAG/Debug Lockdown (Implemented)
+
+In safety-critical mode, the kernel locks the OS Lock Access Register (OSLAR_EL1) to disable external debug access and reconfigures GPIO pins 22-27 (JTAG interface) to input with pull-down on the Pi 5 hardware. Controlled by `OS_CFG_DEBUG_LOCKDOWN`.
+
+#### 12.6.12 Secure Boot Chain (Future)
 
 tiny-os does not implement its own secure boot, but is compatible with the Raspberry Pi 5 secure boot infrastructure:
 
 - The Pi 5 OTP-based secure boot verifies `start4.elf` and the kernel image signature
 - `config.txt` option `secure_boot=1` enables this chain when OTP is programmed
-- tiny-os can verify integrity of loaded modules (Phase 9) using SHA-256 checksums stored in a signed manifest
+- tiny-os verifies runtime integrity of the kernel `.text` section using CRC32 checksums (see 12.6.7)
 
 ### 12.7 Certification Targets
 
@@ -978,7 +1029,7 @@ tiny-os is designed to support certification under the following safety standard
 - Health monitor and watchdog design documentation (11.4, 11.5)
 - Structured shutdown sequence and post-mortem diagnostic format (11.3)
 - Configuration validation with compile-time assertions (10.2)
-- Security hardening: W^X memory policy, Spectre mitigations, DMA constraints (12.6)
+- Security hardening: W^X memory policy, Spectre mitigations, DMA constraints, capability-based access control, cryptographic primitives, runtime code integrity, network firewall, audit log, JTAG lockdown (12.6)
 - Fault injection test results demonstrating graceful degradation (12.2)
 ---
 
@@ -1005,6 +1056,22 @@ The following table summarizes all public API functions grouped by module. All f
 | Health | os_health_status, os_health_force_check |
 | Scheduler Analysis | os_sched_utilization |
 | Criticality | os_criticality_switch, os_criticality_restore |
+| Filesystem | SYS_FS (10): open, read, write, close, readdir_open, readdir_next |
+| Network | SYS_NET (11): socket, bind, connect, sendto, recvfrom, close |
+| SPI | SYS_SPI (12): open, transfer, write, read, close |
+| I2C | SYS_I2C (13): open, write, read, write_read, close |
+| GPIO | SYS_GPIO (14): set_mode, read, write, set_pull |
+| UART | SYS_UART (15): open, write, read, close, available |
+| PWM | SYS_PWM (16): configure, set_duty, enable, disable |
+| RTC | SYS_RTC (17): get_time, set_time, set_alarm, clear_alarm, get_alarm |
+| DMA | SYS_DMA (18): configure, start, complete, abort |
+| USB | SYS_USB (19): enumerate, dev_info, bulk_transfer, interrupt_transfer |
+| Crypto | SYS_CRYPTO (20): aes_encrypt, aes_decrypt, sha256, detect |
+| Power | SYS_POWER (21): get_freq, set_freq, get_min_freq, get_max_freq, get_voltage |
+| Firewall | firewall_enable, firewall_disable, firewall_add_rule, firewall_status |
+| Integrity | integrity_init, integrity_verify, integrity_boot_crc |
+| Audit | audit_log, audit_dump, audit_persist_to_fs |
+| JTAG | jtag_lockdown |
 ### 13.2 Appendix B: Bare-Metal Boot Configuration
 
 To boot tiny-os on a Raspberry Pi 5, prepare an SD card with the standard Raspberry Pi firmware files and the following configuration:
@@ -1051,3 +1118,4 @@ The full context saved and restored on each context switch consists of:
 | --- | --- | --- | --- |
 | 1.0 | March 2026 | tiny-os Team | Initial specification for Raspberry Pi 5 / Cortex-A76 (evolved from simple_os Cortex-M spec) |
 | 1.1 | March 2026 | tiny-os Team | Added BCM2712 D0 stepping documentation; added 1 GB RAM variant support and auto pool sizing; updated config.txt with official bare-metal options (os_check, uart_early_init, pciex4_reset); added compatible boards (Pi 500, Pi 500+, CM5); added stepping detection at boot; updated memory map notes for constrained-RAM variants |
+| 1.2 | September 2026 | tiny-os Team | Added Phase 11 safety certification (compile-time config validation, memory pools, hooks, health monitor, budget enforcement, structured shutdown, WCET, schedulability analysis, fault injection, traceability matrix); added Phase 13 security hardening (capability-based access control, SHA-256/HMAC-SHA256, CRC32, shell authentication, network firewall, runtime code integrity, persistent audit log, JTAG lockdown); added Phase 12 extended peripherals (PWM, Serial/UART1-5, USB xHCI skeleton, Ethernet MAC skeleton, software RTC, DVFS power management, ARMv8 Crypto Extensions, SDR104 UHS-I SD card); updated driver table, syscall summary, testing methodology, and RP1 memory map |

@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 13: Security Hardening** — complete. Allowlist-based network firewall (default-deny when enabled, 16-rule table, per-packet src IP/mask + dst port + protocol matching). SHA-256 (FIPS 180-4, runtime + const fn) and HMAC-SHA256 (RFC 2104, constant-time comparison). CRC32 with precomputed lookup table. Shell authentication with SHA-256 password hash at compile time, 3-attempt lockout, cfg-gated via `SHELL_AUTH_EN`. Per-task syscall capability bitmask (`capabilities: u32` in TCB, `CAP_ALL` for kernel, restricted `CAP_USER_DEFAULT` for user tasks excluding SPI/I2C/GPIO). Runtime code integrity verification (CRC32 of .text section at boot, periodic re-check by health monitor). Persistent audit log (64-entry ring buffer, 10 event types, FAT32 persistence). JTAG/debug lockdown (OSLAR_EL1, GPIO reconfiguration in safety-critical mode). Health monitor extended with code integrity check (8 checks total). Shell commands: `firewall`, `integrity`, `audit`. 44 host tests, all 6 build configurations pass.
+**Phase 12: Extended Peripheral Support** — complete. 5 new HAL traits (PwmDevice, SerialPort, RtcDevice, UsbHostController, CryptoEngine). 4 new RP1 BSP drivers (PWM, Serial/UART1-5, USB xHCI skeleton, Ethernet MAC skeleton). Software RTC with monotonic clock, power management via VideoCore mailbox DVFS. ARMv8 Crypto Extensions driver (AES ECB/CBC/CTR with hardware AESE/AESD instructions, software SHA-256). SDR104 UHS-I SD card upgrade with ADMA2 DMA. 7 new syscalls (SYS_UART=15 through SYS_POWER=21) with 7 capability bits (CAP_UART through CAP_POWER). Shell commands: `pwm`, `rtc`, `power`, `crypto`, `uart`. 51 host tests, all 6 build configurations pass.
 
 ## Target Hardware
 
@@ -62,6 +62,11 @@ All hardware-specific code is isolated behind Rust traits so porting requires im
 | `SpiDevice`           | `arch::spi`      | 10.5  | SPI bus configure/transfer            |
 | `I2cDevice`           | `arch::i2c`      | 10.5  | I2C bus configure/read/write          |
 | `GpioController`      | `arch::gpio`     | 10.5  | GPIO pin mode/read/write              |
+| `PwmDevice`           | `arch::pwm`      | 12    | PWM channel configure/enable/disable  |
+| `SerialPort`          | `arch::serial`   | 12    | UART port open/read/write/close       |
+| `RtcDevice`           | `arch::rtc`      | 12    | RTC get/set time, alarms              |
+| `UsbHostController`   | `arch::usb`      | 12    | USB device enumeration/transfers      |
+| `CryptoEngine`        | `arch::crypto_engine` | 12 | AES encrypt/decrypt, SHA-256          |
 
 ## Cargo Workspace Layout
 
@@ -92,11 +97,12 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, firewall, integrity, audit, exec [dynamic-load], faulttest, wcet, yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, firewall, integrity, audit, pwm, rtc, power, crypto, uart, exec [dynamic-load], faulttest, wcet, yield, svc, reboot)
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
-│   │   ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE) and
+│   │   ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE),
 │   │   │                   #   subsystem multiplexed (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C,
-│   │   │                   #   SYS_GPIO) with X0=operation, X1-X3=args
+│   │   │                   #   SYS_GPIO), and Phase 12 peripherals (SYS_UART, SYS_PWM,
+│   │   │                   #   SYS_RTC, SYS_DMA, SYS_USB, SYS_CRYPTO, SYS_POWER)
 │   │   ├── periph.rs       # Peripheral driver instances (SPI/I2C/GPIO): cfg-gated
 │   │   │                   #   RP1 drivers on Pi 5, stubs returning errors on QEMU
 │   │   ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs (.user.text section)
@@ -109,11 +115,14 @@ tiny_os/
 │   │   ├── wcet.rs         # WCET measurement harness: PMU cycle counter, min/max/avg tracking
 │   │   ├── sched_analysis.rs # RMA utilization check + Response-Time Analysis with PIP blocking
 │   │   ├── fault_inject.rs # Fault injection test suite: 8 tests for safety certification
+│   │   ├── rtc.rs          # Software RTC: AtomicU64 epoch, monotonic clock, alarm
+│   │   ├── power.rs        # Power management: DVFS via VideoCore mailbox, WFI idle
 │   │   ├── crypto/         # Cryptographic primitives subsystem
-│   │   │   ├── mod.rs      # Module declarations (sha256, hmac, crc32)
+│   │   │   ├── mod.rs      # Module declarations (sha256, hmac, crc32, hw)
 │   │   │   ├── sha256.rs   # SHA-256 (FIPS 180-4): runtime hash + const fn for compile-time
 │   │   │   ├── hmac.rs     # HMAC-SHA256 (RFC 2104): constant-time comparison
-│   │   │   └── crc32.rs    # CRC32 with precomputed 256-entry lookup table
+│   │   │   ├── crc32.rs    # CRC32 with precomputed 256-entry lookup table
+│   │   │   └── hw.rs       # ARMv8 Crypto Extensions: AES (ECB/CBC/CTR), software SHA-256
 │   │   ├── integrity.rs    # Runtime code integrity: CRC32 of .text at boot, periodic verify
 │   │   ├── audit.rs        # Audit log: 64-entry ring buffer, 10 event types, FAT32 persist
 │   │   ├── jtag.rs         # JTAG/debug lockdown: OSLAR_EL1, GPIO 22-27 disable
@@ -172,6 +181,11 @@ tiny_os/
 │       ├── spi.rs          # SpiDevice HAL trait (configure, transfer, read, write)
 │       ├── i2c.rs          # I2cDevice HAL trait (configure, read, write, write_read)
 │       ├── gpio.rs         # GpioController HAL trait (set_mode, set_pull, read, write)
+│       ├── pwm.rs          # PwmDevice HAL trait (configure, set_duty, enable, disable)
+│       ├── serial.rs       # SerialPort HAL trait (open, write, read, close)
+│       ├── rtc.rs          # RtcDevice HAL trait (get/set time, alarm management)
+│       ├── usb.rs          # UsbHostController HAL trait (enumerate, transfers)
+│       ├── crypto_engine.rs # CryptoEngine HAL trait (AES encrypt/decrypt, SHA-256)
 │       └── aarch64/
 │           ├── mod.rs
 │           ├── boot.S      # _start, spin-table secondary parking, secondary_boot EL drop
@@ -191,15 +205,19 @@ tiny_os/
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases, MAILBOX_BASE,
-│       │                   #   Rp1Spi, Rp1I2c, Rp1Gpio on bsp-rpi5)
+│       │                   #   Rp1Spi, Rp1I2c, Rp1Gpio, Rp1Pwm, Rp1Serial, Rp1Usb, Rp1Eth on bsp-rpi5)
 │       ├── rpi5/
 │       │   ├── mod.rs
 │       │   ├── rp1_uart.rs
 │       │   ├── rp1_spi.rs      # RP1 SPI0 driver (DW_apb_ssi, polling mode)
 │       │   ├── rp1_i2c.rs      # RP1 I2C0 driver (DW_apb_i2c, polling mode)
 │       │   ├── rp1_gpio.rs     # RP1 GPIO driver (28 pins, pad control, RIO)
-│       │   └── memory_map.rs   # RP1 UART, SPI0, I2C0, GPIO bases, GIC, RAM,
-│       │                       #   MAILBOX_BASE, peripheral + RP1 MMIO regions
+│       │   ├── rp1_pwm.rs      # RP1 PWM driver (2 channels, 50 MHz ref clock)
+│       │   ├── rp1_serial.rs   # RP1 UART1-5 driver (PL011, 48 MHz ref clock)
+│       │   ├── rp1_usb.rs      # RP1 xHCI USB host skeleton (all ops return NotAvailable)
+│       │   ├── rp1_eth.rs      # RP1 Ethernet MAC skeleton (Synopsys GMAC)
+│       │   └── memory_map.rs   # RP1 UART, SPI0, I2C0, GPIO, PWM, ETH, USB bases,
+│       │                       #   GIC, RAM, MAILBOX_BASE, peripheral + RP1 MMIO regions
 │       └── qemu_virt/
 │           ├── mod.rs
 │           ├── uart.rs     # BCM2711 PL011 UART at 0xFE20_1000
@@ -213,7 +231,8 @@ tiny_os/
     │       ├── ethernet.rs # Ethernet frame parsing tests (7 tests)
     │       ├── mbr.rs      # MBR partition table parsing tests (7 tests)
     │       ├── sha256.rs   # SHA-256, HMAC-SHA256 tests (11 tests, incl. RFC 4231)
-    │       └── crc32.rs    # CRC32 tests (6 tests, incl. check value 0xCBF43926)
+    │       ├── crc32.rs    # CRC32 tests (6 tests, incl. check value 0xCBF43926)
+    │       └── rtc.rs     # RTC datetime conversion tests (7 tests, epoch/leap/roundtrip)
     └── qemu/
         └── run_tests.ps1   # QEMU integration test runner (15 boot verification checks)
 ```
@@ -243,7 +262,7 @@ tiny_os/
 
 Two-tier test infrastructure accommodates the bare-metal constraint (the workspace default target is `aarch64-unknown-none`, which has no `std`).
 
-### Host-side unit tests (44 tests)
+### Host-side unit tests (51 tests)
 
 Pure-logic algorithms (checksums, parsers) re-implemented in `tests/host/` and tested natively with `cargo test`. The host-tests crate requires an explicit `--target` override because the workspace default target is bare-metal.
 
@@ -468,3 +487,25 @@ make test                     # runs test-host then test-qemu
 - [x] Shell commands: `firewall` (status, rules, counters), `integrity` (CRC32 status, check count), `audit [N]` / `audit persist` (view/persist log)
 - [x] Host-side tests: SHA-256 (6 tests incl. NIST vectors), HMAC-SHA256 (4 tests incl. RFC 4231), CRC32 (6 tests incl. check value), plus existing 28 = 44 total
 - [x] All 6 BSP×feature configurations build cleanly, all 44 host tests pass
+
+### Phase 12 — Extended Peripheral Support ✅
+
+- [x] 5 new HAL traits: `PwmDevice` (`arch::pwm`), `SerialPort` (`arch::serial`), `RtcDevice` (`arch::rtc`), `UsbHostController` (`arch::usb`), `CryptoEngine` (`arch::crypto_engine`)
+- [x] RP1 PWM driver (`bsp::rpi5::rp1_pwm`): 2-channel, 50 MHz reference clock, frequency/duty calculation, MSEN mode
+- [x] RP1 Serial driver (`bsp::rpi5::rp1_serial`): UART1-5 (PL011-compatible, 48 MHz ref, baud rate divisor, 800-byte stride)
+- [x] RP1 USB xHCI skeleton (`bsp::rpi5::rp1_usb`): register map comments, all operations return `NotAvailable`
+- [x] RP1 Ethernet MAC skeleton (`bsp::rpi5::rp1_eth`): Synopsys GMAC register map, `NetDevice` trait returning errors
+- [x] BSP memory map: `RP1_PWM_BASE`, `RP1_UART1_BASE`, `RP1_ETH_BASE`, `RP1_USB_BASE`
+- [x] Software RTC (`kernel::rtc`): monotonic tick-based time tracking, AtomicU64 epoch, alarm support, datetime validation
+- [x] Power management (`kernel::power`): CPU frequency get/set via VideoCore mailbox DVFS, min/max/voltage query, WFI idle
+- [x] VideoCore mailbox DVFS extensions (`arch::aarch64::mailbox`): get/set clock rate, min/max clock, voltage query
+- [x] ARMv8 Crypto Extensions driver (`kernel::crypto::hw`): AES-128/256 encrypt/decrypt (ECB, CBC, CTR) using hardware AESE/AESD/AESMC/AESIMC instructions, software key schedule (Rijndael), software SHA-256, runtime detection via ID_AA64ISAR0_EL1
+- [x] Kernel peripheral manager extended (`kernel::periph`): PWM and Serial driver instances with cfg-gated RP1 drivers
+- [x] 7 new syscalls: SYS_UART(15), SYS_PWM(16), SYS_RTC(17), SYS_DMA(18), SYS_USB(19), SYS_CRYPTO(20), SYS_POWER(21)
+- [x] 7 capability bits: CAP_UART(1<<15) through CAP_POWER(1<<21), excluded from CAP_USER_DEFAULT
+- [x] Syscall dispatch: 7 new dispatch functions with operation codes, user pointer validation, capability enforcement
+- [x] SDR104 UHS-I mode (`arch::aarch64::emmc2`): 1.8V signaling, 208 MHz clock, CMD19 tuning, ADMA2 DMA transfers, graceful fallback to 25 MHz PIO
+- [x] Shell commands: `pwm` (status), `rtc` (datetime/alarm), `power` (freq/voltage), `crypto` (detection), `uart` (port info)
+- [x] Configuration constants in `os_cfg`: MAX_SERIAL_PORTS, PWM_CHANNELS, MAX_USB_DEVICES, CRYPTO_AES_BLOCK_SIZE, RTC_EPOCH_YEAR
+- [x] Host-side tests: RTC datetime conversions (7 tests: epoch zero, roundtrip, leap year, known timestamp, boundary, days_in_month), plus existing 44 = 51 total
+- [x] All 6 BSP×feature configurations build cleanly, all 51 host tests pass

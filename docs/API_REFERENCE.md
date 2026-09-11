@@ -59,6 +59,11 @@ Interactive commands at the `tiny_os>` UART prompt. Type `help` for the built-in
 | `audit persist` | Persist audit log to FAT32 `/audit.log` |
 | `faulttest` | Run the 8-test fault injection suite |
 | `wcet` | Dump WCET measurements for instrumented code paths |
+| `pwm` | Show PWM channel count and RP1 availability |
+| `rtc` | Show current date/time and alarm status |
+| `power` | Show CPU frequency, min/max, and voltage |
+| `crypto` | Show ARMv8 Crypto Extensions detection and supported algorithms |
+| `uart` | Show serial port count and RP1 UART info |
 | `exec <path>` | Load and execute an ELF64 binary from filesystem (requires `dynamic-load` feature) |
 | `yield` | Yield the current task's timeslice |
 | `svc` | Trigger a test SVC #42 exception |
@@ -95,6 +100,13 @@ X8 selects the subsystem; X0 selects the operation within it; X1-X3 carry argume
 | 12 | `SYS_SPI` | SPI bus operations |
 | 13 | `SYS_I2C` | I2C bus operations |
 | 14 | `SYS_GPIO` | GPIO pin operations |
+| 15 | `SYS_UART` | User-space serial port operations |
+| 16 | `SYS_PWM` | Pulse-width modulation operations |
+| 17 | `SYS_RTC` | Real-time clock operations |
+| 18 | `SYS_DMA` | User-space DMA transfer operations |
+| 19 | `SYS_USB` | USB host operations |
+| 20 | `SYS_CRYPTO` | Hardware-accelerated crypto operations |
+| 21 | `SYS_POWER` | Power management operations |
 
 #### Error Codes
 
@@ -159,6 +171,72 @@ All subsystem syscalls return `u64::MAX` (`0xFFFF_FFFF_FFFF_FFFF`) family values
 | 1 | `GPIO_READ` | pin | — | — | 0 or 1, or error |
 | 2 | `GPIO_WRITE` | pin | value (0/1) | — | 0 or error |
 | 3 | `GPIO_SET_PULL` | pin | pull (0=None, 1=Up, 2=Down) | — | 0 or error |
+
+#### SYS_UART (15) — Serial Port
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `UART_OPEN` | port (1-5) | baud_rate | — | 0 or error |
+| 1 | `UART_WRITE` | port | data_ptr | data_len | bytes written or error |
+| 2 | `UART_READ` | port | buf_ptr | buf_len | bytes read or error |
+| 3 | `UART_CLOSE` | port | — | — | 0 or error |
+| 4 | `UART_AVAILABLE` | port | — | — | bytes available or error |
+
+#### SYS_PWM (16) — Pulse-Width Modulation
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `PWM_CONFIGURE` | channel (0-1) | frequency_hz | — | 0 or error |
+| 1 | `PWM_SET_DUTY` | channel | duty (0-65535) | — | 0 or error |
+| 2 | `PWM_ENABLE` | channel | — | — | 0 or error |
+| 3 | `PWM_DISABLE` | channel | — | — | 0 or error |
+
+#### SYS_RTC (17) — Real-Time Clock
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `RTC_GET_TIME` | out_ptr | — | — | 0 or error |
+| 1 | `RTC_SET_TIME` | datetime_ptr | — | — | 0 or error |
+| 2 | `RTC_SET_ALARM` | datetime_ptr | — | — | 0 or error |
+| 3 | `RTC_CLEAR_ALARM` | — | — | — | 0 or error |
+
+#### SYS_DMA (18) — DMA Transfers
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `DMA_CONFIGURE` | channel | src_addr | dst_addr | 0 or error |
+| 1 | `DMA_START` | channel | length | — | 0 or error |
+| 2 | `DMA_STATUS` | channel | — | — | status or error |
+| 3 | `DMA_ABORT` | channel | — | — | 0 or error |
+
+#### SYS_USB (19) — USB Host
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `USB_ENUMERATE` | — | — | — | device count or error |
+| 1 | `USB_DEV_INFO` | dev_index | out_ptr | — | 0 or error |
+| 2 | `USB_BULK_XFER` | dev_index | buf_ptr | buf_len | bytes transferred or error |
+| 3 | `USB_INT_XFER` | dev_index | buf_ptr | buf_len | bytes transferred or error |
+
+#### SYS_CRYPTO (20) — Hardware Cryptography
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `CRYPTO_AES_ENC` | in_ptr | out_ptr | key_ptr | 0 or error |
+| 1 | `CRYPTO_AES_DEC` | in_ptr | out_ptr | key_ptr | 0 or error |
+| 2 | `CRYPTO_SHA256` | data_ptr | data_len | out_ptr | 0 or error |
+| 3 | `CRYPTO_DETECT` | — | — | — | flags (bit 0 = AES, bit 1 = SHA) |
+
+#### SYS_POWER (21) — Power Management
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `POWER_GET_FREQ` | — | — | — | frequency in Hz or error |
+| 1 | `POWER_SET_FREQ` | freq_hz | — | — | 0 or error |
+| 2 | `POWER_GET_MAX_FREQ` | — | — | — | max frequency in Hz or error |
+| 3 | `POWER_GET_MIN_FREQ` | — | — | — | min frequency in Hz or error |
+| 4 | `POWER_GET_VOLTAGE` | — | — | — | voltage in microvolts or error |
+| 5 | `POWER_IDLE` | — | — | — | 0 |
 
 ### Inline-asm calling convention
 
@@ -719,22 +797,29 @@ pub fn health_task(_arg: usize) -> !    // Task entry point
 
 ### Syscall Capabilities (`kernel::sched`)
 
-Per-task capability bitmask controlling which syscalls a task may invoke. Kernel tasks get `CAP_ALL`; user tasks get `CAP_USER_DEFAULT` (excludes SPI, I2C, GPIO).
+Per-task capability bitmask controlling which syscalls a task may invoke. Kernel tasks get `CAP_ALL`; user tasks get `CAP_USER_DEFAULT` (excludes hardware peripherals).
 
 ```rust
-pub const CAP_YIELD: u32  = 1 << 0;
-pub const CAP_DELAY: u32  = 1 << 1;
-pub const CAP_WRITE: u32  = 1 << 2;
-pub const CAP_TASKID: u32 = 1 << 3;
-pub const CAP_UPTIME: u32 = 1 << 4;
-pub const CAP_EXIT: u32   = 1 << 5;
-pub const CAP_TEMP: u32   = 1 << 6;
-pub const CAP_FS: u32     = 1 << 10;
-pub const CAP_NET: u32    = 1 << 11;
-pub const CAP_SPI: u32    = 1 << 12;
-pub const CAP_I2C: u32    = 1 << 13;
-pub const CAP_GPIO: u32   = 1 << 14;
-pub const CAP_ALL: u32    = 0xFFFFFFFF;
+pub const CAP_YIELD: u32   = 1 << 0;
+pub const CAP_DELAY: u32   = 1 << 1;
+pub const CAP_WRITE: u32   = 1 << 2;
+pub const CAP_TASKID: u32  = 1 << 3;
+pub const CAP_UPTIME: u32  = 1 << 4;
+pub const CAP_EXIT: u32    = 1 << 5;
+pub const CAP_TEMP: u32    = 1 << 6;
+pub const CAP_FS: u32      = 1 << 10;
+pub const CAP_NET: u32     = 1 << 11;
+pub const CAP_SPI: u32     = 1 << 12;
+pub const CAP_I2C: u32     = 1 << 13;
+pub const CAP_GPIO: u32    = 1 << 14;
+pub const CAP_UART: u32    = 1 << 15;
+pub const CAP_PWM: u32     = 1 << 16;
+pub const CAP_RTC: u32     = 1 << 17;
+pub const CAP_DMA: u32     = 1 << 18;
+pub const CAP_USB: u32     = 1 << 19;
+pub const CAP_CRYPTO: u32  = 1 << 20;
+pub const CAP_POWER: u32   = 1 << 21;
+pub const CAP_ALL: u32     = 0xFFFFFFFF;
 pub const CAP_USER_DEFAULT: u32 = CAP_YIELD | CAP_DELAY | CAP_WRITE | CAP_TASKID
     | CAP_UPTIME | CAP_EXIT | CAP_TEMP | CAP_FS | CAP_NET;
 
@@ -799,6 +884,21 @@ CRC32 with precomputed 256-entry lookup table.
 pub fn crc32(data: &[u8]) -> u32
 pub fn crc32_update(prev_crc: u32, data: &[u8]) -> u32  // Incremental
 ```
+
+#### Hardware Crypto Extensions (`kernel::crypto::hw`)
+
+ARMv8 Cryptography Extensions driver using hardware AES instructions (AESE/AESD/AESMC/AESIMC). Falls back gracefully when hardware is not available.
+
+```rust
+pub fn detect_crypto() -> bool                   // Check ID_AA64ISAR0_EL1 for AES support
+pub fn aes_encrypt_block(block: &mut [u8; 16], key: &[u8])   // AES-128/256 ECB encrypt
+pub fn aes_decrypt_block(block: &mut [u8; 16], key: &[u8])   // AES-128/256 ECB decrypt
+pub fn aes_cbc_encrypt(data: &mut [u8], key: &[u8], iv: &[u8; 16])  // CBC mode encrypt
+pub fn aes_cbc_decrypt(data: &mut [u8], key: &[u8], iv: &[u8; 16])  // CBC mode decrypt
+pub fn aes_ctr(data: &mut [u8], key: &[u8], nonce: &[u8; 16])       // CTR mode encrypt/decrypt
+```
+
+Supported key sizes: AES-128 (16 bytes) and AES-256 (32 bytes). Key schedule is computed in software using the Rijndael algorithm. Data blocks must be 16-byte aligned.
 
 ### Code Integrity (`kernel::integrity`)
 
@@ -883,3 +983,8 @@ Hardware abstraction traits in the `arch` crate. Implement these to port to a ne
 | `SpiDevice` | `arch::spi` | `configure(config)`, `transfer(tx, rx)`, `write(data)`, `read(buf)` |
 | `I2cDevice` | `arch::i2c` | `configure(config)`, `write(addr, data)`, `read(addr, buf)`, `write_read(addr, tx, rx)` |
 | `GpioController` | `arch::gpio` | `set_mode(pin, mode)`, `set_pull(pin, pull)`, `read(pin)`, `write(pin, high)` |
+| `PwmDevice` | `arch::pwm` | `configure(ch, freq)`, `set_duty(ch, duty)`, `enable(ch)`, `disable(ch)` |
+| `SerialPort` | `arch::serial` | `open(port, baud)`, `write(port, data)`, `read(port, buf)`, `close(port)`, `available(port)` |
+| `RtcDevice` | `arch::rtc` | `get_time()`, `set_time(dt)`, `set_alarm(dt)`, `clear_alarm()` |
+| `UsbHostController` | `arch::usb` | `enumerate()`, `dev_info(idx)`, `bulk_transfer(...)`, `interrupt_transfer(...)` |
+| `CryptoEngine` | `arch::crypto_engine` | `aes_encrypt(...)`, `aes_decrypt(...)`, `sha256(...)` |

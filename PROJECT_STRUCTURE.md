@@ -19,7 +19,7 @@ tiny_os/
 │                           #   -Tkernel/link.ld; default target triple
 │
 ├── docs/                   # Specifications, API reference, and developer guides
-│   ├── tiny_os_specification_v1.1.md   # System specification v1.2 — includes RTOS
+│   ├── tiny_os_specification_v1.2.md   # System specification v1.2 — includes RTOS
 │   │                                   #   certification: WCET, MC/DC, health monitor,
 │   │                                   #   watchdog, mixed-criticality, traceability
 │   ├── API_REFERENCE.md    # Complete API reference: shell, syscalls, scheduler,
@@ -60,6 +60,11 @@ tiny_os/
 │       ├── spi.rs          # SpiDevice HAL trait: configure, transfer, read, write
 │       ├── i2c.rs          # I2cDevice HAL trait: configure, read, write, write_read
 │       ├── gpio.rs         # GpioController HAL trait: set_mode, set_pull, read, write
+│       ├── pwm.rs          # PwmDevice HAL trait: configure, set_duty, enable, disable
+│       ├── serial.rs       # SerialPort HAL trait: open, write, read, close, available
+│       ├── rtc.rs          # RtcDevice HAL trait: get/set time, set/clear alarm
+│       ├── usb.rs          # UsbHostController HAL trait: enumerate, bulk/interrupt transfer
+│       ├── crypto_engine.rs # CryptoEngine HAL trait: AES encrypt/decrypt, SHA-256
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
 │           ├── boot.S      # _start: DTB save, spin-table parking, secondary_boot
@@ -73,9 +78,11 @@ tiny_os/
 │           │               #   CVAL-based acknowledge, secondary core init)
 │           ├── smp.rs      # AArch64 SMP: spin-table wakeup via SEV, core_id()
 │           ├── mailbox.rs  # VideoCore mailbox driver: property tag interface,
-│           │               #   SoC temperature query (tag 0x00030006)
-│           ├── emmc2.rs    # SDHCI/EMMC2 SD card driver: PIO mode, card
-│           │               #   init (CMD0/8/ACMD41/2/3/9/7), CSD parsing
+│           │               #   SoC temperature query (tag 0x00030006), DVFS
+│           │               #   clock rate get/set, min/max clock, voltage query
+│           ├── emmc2.rs    # SDHCI/EMMC2 SD card driver: PIO + SDR104 mode,
+│           │               #   card init (CMD0/8/ACMD41/2/3/9/7), CSD parsing,
+│           │               #   UHS-I 1.8V signaling, 208 MHz, ADMA2 DMA
 │           ├── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
 │           │               #   mapping with 2MB blocks, W^X policy (RoCode RX,
 │           │               #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config,
@@ -90,16 +97,22 @@ tiny_os/
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
 │   └── src/
 │       ├── lib.rs          # Re-exports PlatformUart, GIC_DIST_BASE, GIC_CPU_BASE,
-│       │                   #   MAILBOX_BASE based on active feature flag
+│       │                   #   MAILBOX_BASE, Rp1Spi, Rp1I2c, Rp1Gpio, Rp1Pwm,
+│       │                   #   Rp1Serial, Rp1Usb, Rp1Eth based on active feature flag
 │       ├── rpi5/
 │       │   ├── mod.rs          # BSP root for Raspberry Pi 5
 │       │   ├── memory_map.rs   # RP1_UART0_BASE, RP1_SPI0_BASE, RP1_I2C0_BASE,
-│       │   │                   #   RP1_GPIO_BASE (36-bit PCIe window), GIC bases,
-│       │   │                   #   MAILBOX_BASE, EMMC2_BASE, peripheral + RP1 MMIO regions
+│       │   │                   #   RP1_GPIO_BASE, RP1_PWM_BASE, RP1_UART1_BASE,
+│       │   │                   #   RP1_ETH_BASE, RP1_USB_BASE (36-bit PCIe window),
+│       │   │                   #   GIC bases, MAILBOX_BASE, EMMC2_BASE
 │       │   ├── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
 │       │   ├── rp1_spi.rs      # RP1 SPI0 driver (DW_apb_ssi, polling mode)
 │       │   ├── rp1_i2c.rs      # RP1 I2C0 driver (DW_apb_i2c, polling mode)
-│       │   └── rp1_gpio.rs     # RP1 GPIO driver (28 pins, pad control, RIO)
+│       │   ├── rp1_gpio.rs     # RP1 GPIO driver (28 pins, pad control, RIO)
+│       │   ├── rp1_pwm.rs      # RP1 PWM driver (2 channels, 50 MHz ref clock)
+│       │   ├── rp1_serial.rs   # RP1 UART1-5 driver (PL011, 48 MHz ref clock)
+│       │   ├── rp1_usb.rs      # RP1 xHCI USB host skeleton (returns NotAvailable)
+│       │   └── rp1_eth.rs      # RP1 Ethernet MAC skeleton (Synopsys GMAC)
 │       └── qemu_virt/
 │           ├── mod.rs          # BSP root for QEMU raspi4b
 │           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases, MAILBOX_BASE, EMMC2_BASE,
@@ -122,34 +135,43 @@ tiny_os/
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
         │                   #   tasks, smp, log, health, sd, sdread, ls, cat, hexdump,
         │                   #   touch, write, ping, netstat, ifconfig, temp, firewall,
-        │                   #   integrity, audit, exec [dynamic-load], faulttest, wcet,
-        │                   #   yield, svc, reboot. SHA-256 auth with lockout (cfg-gated)
+        │                   #   integrity, audit, pwm, rtc, power, crypto, uart,
+        │                   #   exec [dynamic-load], faulttest, wcet, yield, svc, reboot.
+        │                   #   SHA-256 auth with lockout (cfg-gated)
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
-        ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE) and
-        │                   #   subsystem multiplexed (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C,
-        │                   #   SYS_GPIO) with X0=operation, X1-X3=args. Per-task capability
-        │                   #   enforcement: cap_for_syscall() check before dispatch, E_PERM
-        │                   #   on denial with audit logging
-        ├── periph.rs       # Peripheral driver instances (SPI/I2C/GPIO): cfg-gated
-        │                   #   RP1 drivers on Pi 5, stubs on QEMU
+        ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE),
+        │                   #   subsystem (SYS_FS..SYS_GPIO), and peripheral
+        │                   #   (SYS_UART..SYS_POWER) with X0=operation, X1-X3=args.
+        │                   #   Per-task capability enforcement: cap_for_syscall() check
+        │                   #   before dispatch, E_PERM on denial with audit logging
+        ├── periph.rs       # Peripheral driver instances (SPI/I2C/GPIO/PWM/Serial):
+        │                   #   cfg-gated RP1 drivers on Pi 5, stubs on QEMU
         ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs,
         │                   #   all code in .user.text section (EL0-accessible)
         ├── loader.rs       # [dynamic-load] ELF64 PIE loader: parse headers, load
         │                   #   PT_LOAD segments, apply relocations, create user tasks
         ├── os_cfg.rs       # Centralized OS_CFG_* constants with compile-time assertions,
-        │                   #   security config (firewall, auth, debug lockdown)
+        │                   #   security config (firewall, auth, debug lockdown),
+        │                   #   peripheral config (serial ports, PWM channels, USB, crypto)
         ├── hooks.rs        # 14 os_hook_* functions with default behaviors (spec 11.2)
         ├── shutdown.rs     # Structured shutdown: diag save, fault log, hook, reboot/halt
         ├── criticality.rs  # Criticality mode switch: suspend/restore lower-priority tasks
         ├── wcet.rs         # WCET measurement harness: PMU cycle counter, min/max/avg
         ├── sched_analysis.rs # RMA utilization check + Response-Time Analysis with PIP
         ├── fault_inject.rs # Fault injection test suite: 8 tests for safety certification
+        ├── rtc.rs          # Software RTC: AtomicU64 epoch, monotonic tick-based time,
+        │                   #   alarm support, datetime validation and conversion
+        ├── power.rs        # Power management: CPU frequency scaling (DVFS) via
+        │                   #   VideoCore mailbox, min/max/voltage query, WFI idle
         ├── crypto/         # Cryptographic primitives subsystem
-        │   ├── mod.rs      # Module declarations (sha256, hmac, crc32)
+        │   ├── mod.rs      # Module declarations (sha256, hmac, crc32, hw)
         │   ├── sha256.rs   # SHA-256 (FIPS 180-4): runtime hash() + const fn const_hash()
         │   ├── hmac.rs     # HMAC-SHA256 (RFC 2104): constant-time comparison
-        │   └── crc32.rs    # CRC32 with precomputed 256-entry lookup table
+        │   ├── crc32.rs    # CRC32 with precomputed 256-entry lookup table
+        │   └── hw.rs       # ARMv8 Crypto Extensions: AES ECB/CBC/CTR via hardware
+        │                   #   AESE/AESD/AESMC/AESIMC instructions, software key
+        │                   #   schedule, runtime detection via ID_AA64ISAR0_EL1
         ├── integrity.rs    # Runtime code integrity: CRC32 of .text at boot, periodic
         │                   #   re-verification by health monitor, boot_crc/verify API
         ├── audit.rs        # Security audit log: 64-entry ring buffer, 10 event types
@@ -217,7 +239,7 @@ tests/                      # Two-tier test infrastructure
 ├── host/                   # Host-side unit tests (runs natively, not on bare-metal target)
 │   ├── Cargo.toml          # Separate std crate; requires --target x86_64-pc-windows-msvc
 │   └── src/
-│       ├── lib.rs          # Crate root: declares ipv4, ethernet, mbr, sha256, crc32
+│       ├── lib.rs          # Crate root: declares ipv4, ethernet, mbr, sha256, crc32, rtc
 │       ├── ipv4.rs         # IPv4 checksum + header parsing (12 tests): RFC 1071,
 │       │                   #   corruption detection, protocol parsing, edge cases
 │       ├── ethernet.rs     # Ethernet frame parsing (7 tests): ethertype demux,
@@ -227,8 +249,11 @@ tests/                      # Two-tier test infrastructure
 │       ├── sha256.rs       # SHA-256 + HMAC-SHA256 (10 tests): NIST vectors (empty,
 │       │                   #   abc, 448-bit, long), multi-update, RFC 4231 HMAC,
 │       │                   #   constant-time verify correct/wrong
-│       └── crc32.rs        # CRC32 (6 tests): empty, check value 0xCBF43926, hello,
-│                           #   incremental, different inputs, single byte
+│       ├── crc32.rs        # CRC32 (6 tests): empty, check value 0xCBF43926, hello,
+│       │                   #   incremental, different inputs, single byte
+│       └── rtc.rs          # RTC datetime conversions (7 tests): unix epoch zero,
+│                           #   roundtrip, leap year Feb 29, non-leap year, known
+│                           #   timestamp (2000-01-01), year-end boundary, days_in_month
 └── qemu/
     └── run_tests.ps1       # QEMU integration test runner: builds kernel, boots on
                             #   raspi4b with 15s timeout, checks 15 serial output
