@@ -42,12 +42,13 @@ Interactive commands at the `tiny_os>` UART prompt. Type `help` for the built-in
 | `hexdump <path>` | Hex-dump the contents of a file |
 | `touch <path>` | Create an empty file |
 | `write <path> <text>` | Write text to a file (creating it if needed) |
-| `log [N]` | Show the last N log entries (default 10) |
+| `log [N]` | Show the last N log entries (default 16) |
 | `log level <level>` | Set the minimum log level (error/warn/info/debug/trace) |
 | `health` | Show stack watermarks, CPU utilization, and watchdog status |
 | `ping <ip>` | Send an ICMP echo request and display the reply RTT |
 | `netstat` | Show IP/MAC config, ARP cache, and open socket count |
 | `ifconfig` | Show network interface configuration (loopback) |
+| `temp` | Show the current SoC temperature (°C) |
 | `yield` | Yield the current task's timeslice |
 | `svc` | Trigger a test SVC #42 exception |
 | `reboot` | Reboot the system |
@@ -66,6 +67,7 @@ EL0 tasks invoke syscalls via `SVC #0`. The syscall number goes in **X8**, argum
 | 3 | `SYS_TASK_ID` | — | X0: task ID | Return the current task's ID |
 | 4 | `SYS_UPTIME` | — | X0: ticks | Return the system uptime in ticks |
 | 5 | `SYS_EXIT` | — | (no return) | Terminate the current task |
+| 6 | `SYS_TEMPERATURE` | — | X0: millidegrees C | Read SoC temperature via VideoCore mailbox |
 
 ### Inline-asm calling convention (from `kernel/src/user_tasks.rs`)
 
