@@ -16,3 +16,7 @@ kernel8.img
 
 # Debugging artifacts
 *.map
+
+# QEMU test artifacts
+qemu_out.txt
+test.img
