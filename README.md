@@ -1,11 +1,11 @@
 # tiny-os
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-green.svg)](https://github.com/ScottsSecondAct/some) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) ![AI Assisted](https://img.shields.io/badge/AI%20Assisted-Claude-blue?logo=anthropic) [![Release](https://github.com/ScottsSecondAct/tiny-os/actions/workflows/release.yml/badge.svg)](https://github.com/ScottsSecondAct/tiny-os/actions/workflows/release.yml)
 
-A bare-metal real-time operating system written in Rust, targeting the Raspberry Pi 5 (BCM2712 SoC, quad Cortex-A76, GIC-400). Designed for portability across ARM Cortex-A and Cortex-M families via a clean HAL trait layer.
+A bare-metal real-time operating system written in Rust, targeting the Raspberry Pi 5 (BCM2712 SoC, quad Cortex-A76, GIC-400). Designed for portability across ARM Cortex-A and Cortex-M families via a clean HAL trait layer. The specification (v1.2) includes RTOS certification provisions for IEC 61508 SIL-2, ISO 26262 ASIL-B, and DO-178C DAL-C, with WCET bounds, MC/DC coverage targets, health monitoring, watchdog integration, and mixed-criticality partitioning.
 
 ## Status
 
-**Phase 3 complete** — MMU with identity-mapped 2MB blocks and caches enabled, bitmap page frame allocator (up to 4GB), linked-list heap allocator, minimal DTB parser. Built on Phase 2's GIC-400 interrupt controller, ARM Generic Timer (1 kHz tick), and interactive UART shell.
+**Phase 3 complete** — MMU with identity-mapped 2MB blocks, W^X memory policy (code RX, data RW+NX), and caches enabled. Bitmap page frame allocator (up to 4GB), linked-list heap allocator, minimal DTB parser. Built on Phase 2's GIC-400 interrupt controller, ARM Generic Timer (1 kHz tick), and interactive UART shell.
 
 ## Target Hardware
 
@@ -96,7 +96,7 @@ tiny_os/
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the full 10-phase implementation plan.
+See [ROADMAP.md](ROADMAP.md) for the full 11-phase implementation plan (including Phase 11: Safety Certification).
 
 ## License
 

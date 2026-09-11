@@ -905,7 +905,61 @@ When the system enters degraded mode (section 11.6) or a SAFETY_CRITICAL task re
 - The application is notified via `os_hook_criticality_switch(new_mode)`
 - Normal mode is restored via `os_criticality_restore()` when the fault is resolved
 
-### 12.6 Certification Targets
+### 12.6 Security Hardening
+
+tiny-os implements layered defenses against code injection, privilege escalation, and side-channel attacks. These mitigations are enforced by default and do not require application opt-in.
+
+#### 12.6.1 W^X Memory Policy (Implemented)
+
+All memory is mapped with Write XOR Execute permissions via the AArch64 MMU page table attributes. No memory region is simultaneously writable and executable, eliminating the most common code injection attack primitive.
+
+| Region | Permissions | MMU Attributes | Content |
+| --- | --- | --- | --- |
+| 0x0 – `__data_start` | Read + Execute | AP=RO, PXN=0, UXN=1 | Firmware data, kernel .text, .rodata |
+| `__data_start` – RAM end | Read + Write + No Execute | AP=RW, PXN=1, UXN=1 | .data, .bss, page tables, stack, heap |
+| Peripheral MMIO | Read + Write + No Execute | Device-nGnRnE, PXN=1, UXN=1 | Hardware registers |
+
+The `__data_start` symbol is 2MB-aligned by the linker script to match the MMU's 2MB block descriptor granularity. This ensures a clean permission boundary with no mixed-permission blocks.
+
+**Enforcement:** Any attempt to execute code from the data/heap/stack region triggers a synchronous Permission Fault (EC=0x21, ISS.IFSC=0x0D) caught by the exception vector, which invokes `os_hook_hard_fault()` and initiates structured shutdown (11.3).
+
+#### 12.6.2 Per-Task Memory Isolation (Phase 10)
+
+When EL0 user tasks are enabled (Phase 10), each task receives its own restricted address space:
+
+- Kernel memory is mapped with AP=EL1-only (not accessible from EL0)
+- UXN bit prevents EL0 execution of kernel code
+- Per-task page tables provide spatial isolation between user tasks
+- Stack guard pages (unmapped 4KB pages below each task's stack) detect stack overflows via Data Abort
+
+#### 12.6.3 Spectre/Meltdown Mitigations (Phase 7+)
+
+The Cortex-A76 is susceptible to Spectre v1 (bounds check bypass) and Spectre v2 (branch target injection). tiny-os mitigates these at SMP enablement (Phase 7):
+
+| Mitigation | Mechanism | Performance Impact |
+| --- | --- | --- |
+| Spectre v1 | `CSDB` (Conditional Speculation Barrier) after bounds checks in syscall argument validation | < 5 ns per syscall |
+| Spectre v2 | `SSBS` (Speculative Store Bypass Safe) bit set in PSTATE at EL1 entry; CSV2 hardware mitigation enabled | Negligible (hardware CSV2) |
+| Spectre-BHB | `ECBHB` barrier at EL0→EL1 exception entry (Cortex-A76 supports this) | < 10 ns per exception |
+| Meltdown | Not applicable — Cortex-A76 is not vulnerable to Meltdown (Rogue Data Cache Load) | None |
+
+#### 12.6.4 DMA Protection (Phase 8)
+
+DMA-capable peripherals can bypass MMU protections by writing directly to physical memory. tiny-os constrains DMA:
+
+- `NetBuf` DMA buffers are allocated from a dedicated non-cacheable pool (MAIR index 2) with explicit bounds
+- DMA descriptor rings include buffer length fields; the driver validates that hardware does not write beyond the allocated buffer size
+- Future: if BCM2712 SMMU (System MMU) support is confirmed, DMA transactions will be restricted to their assigned IOVA ranges
+
+#### 12.6.5 Secure Boot Chain (Future)
+
+tiny-os does not implement its own secure boot, but is compatible with the Raspberry Pi 5 secure boot infrastructure:
+
+- The Pi 5 OTP-based secure boot verifies `start4.elf` and the kernel image signature
+- `config.txt` option `secure_boot=1` enables this chain when OTP is programmed
+- tiny-os can verify integrity of loaded modules (Phase 9) using SHA-256 checksums stored in a signed manifest
+
+### 12.7 Certification Targets
 
 tiny-os is designed to support certification under the following safety standards, leveraging the Ferrocene qualified Rust toolchain:
 
@@ -924,6 +978,7 @@ tiny-os is designed to support certification under the following safety standard
 - Health monitor and watchdog design documentation (11.4, 11.5)
 - Structured shutdown sequence and post-mortem diagnostic format (11.3)
 - Configuration validation with compile-time assertions (10.2)
+- Security hardening: W^X memory policy, Spectre mitigations, DMA constraints (12.6)
 - Fault injection test results demonstrating graceful degradation (12.2)
 ---
 

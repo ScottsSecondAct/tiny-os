@@ -49,7 +49,8 @@ Physical memory discovery from the device tree, page frame allocator, MMU identi
 - [x] `PageAllocator` HAL trait in `arch::mm`
 - [x] AArch64 MMU: 4KB granule, 2MB block descriptors, 48-bit VA, identity mapping
 - [x] MAIR (Device-nGnRnE / Normal WB / Normal NC), TCR (40-bit IPS, EPD1), SCTLR (MMU + caches)
-- [x] RAM mapped as Normal WB Cacheable, MMIO regions as Device-nGnRnE
+- [x] W^X memory policy: code mapped RO+X (RoCode), data/heap/stack mapped RW+NX, MMIO mapped RW+NX
+- [x] Linker script 2MB-aligned `__data_start` boundary for clean W^X permission split
 - [x] BSP memory region constants for both QEMU (1GB RAM, peripherals) and Pi 5 (4GB RAM, peripherals + RP1)
 - [x] Linked-list heap allocator: `kmalloc`/`kfree`, seeded with 64 PMM pages (256KB)
 - [x] Shell `mem` command: page stats (total/used/free), heap stats, MMU on/off

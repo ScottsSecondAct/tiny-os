@@ -15,6 +15,7 @@ const PT_TABLE: u64 = 0b11;
 const AF: u64 = 1 << 10;
 const SH_INNER: u64 = 3 << 8;
 const AP_RW_EL1: u64 = 0 << 6;
+const AP_RO_EL1: u64 = 2 << 6;
 const PXN: u64 = 1 << 53;
 const UXN: u64 = 1 << 54;
 
@@ -23,7 +24,9 @@ const fn attr_idx(idx: u64) -> u64 {
 }
 
 // Block descriptor templates.
-const NORMAL_RAM: u64 = PT_BLOCK | attr_idx(1) | AF | SH_INNER | AP_RW_EL1 | UXN;
+// W^X: code is read-only + executable; data is read-write + no-execute.
+const NORMAL_CODE: u64 = PT_BLOCK | attr_idx(1) | AF | SH_INNER | AP_RO_EL1 | UXN;
+const NORMAL_RAM: u64 = PT_BLOCK | attr_idx(1) | AF | SH_INNER | AP_RW_EL1 | PXN | UXN;
 const DEVICE_MEM: u64 = PT_BLOCK | attr_idx(0) | AF | AP_RW_EL1 | PXN | UXN;
 
 // MAIR_EL1: index 0 = Device-nGnRnE, index 1 = Normal WB RA/WA, index 2 = Normal NC.
@@ -95,6 +98,7 @@ pub struct MemRegion {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum MemKind {
+    RoCode,
     Ram,
     Device,
 }
@@ -143,6 +147,7 @@ pub unsafe fn init(regions: &[MemRegion]) {
 
 unsafe fn map_region(region: &MemRegion) {
     let attrs = match region.kind {
+        MemKind::RoCode => NORMAL_CODE,
         MemKind::Ram => NORMAL_RAM,
         MemKind::Device => DEVICE_MEM,
     };

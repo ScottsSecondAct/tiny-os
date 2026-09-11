@@ -2,7 +2,7 @@
 
 ## What This Is
 
-tiny_os is a bare-metal real-time operating system written in Rust, targeting the Raspberry Pi 5 (BCM2712 SoC, quad Cortex-A76, GIC-400). It is designed for portability to other ARM cores (Cortex-A and Cortex-M families). The full specifications and implementation phases are in `docs/`.
+tiny_os is a bare-metal real-time operating system written in Rust, targeting the Raspberry Pi 5 (BCM2712 SoC, quad Cortex-A76, GIC-400). It is designed for portability to other ARM cores (Cortex-A and Cortex-M families). The specification (v1.2) includes RTOS certification provisions for IEC 61508 SIL-2, ISO 26262 ASIL-B, and DO-178C DAL-C — covering WCET bounds, MC/DC coverage, health monitoring, watchdog integration, structured shutdown, mixed-criticality partitioning, and requirements traceability. The full specifications and implementation phases are in `docs/`.
 
 ## Current Phase
 
@@ -99,7 +99,7 @@ tiny_os/
 │           ├── exceptions.rs # TrapFrame, IRQ dispatch table, tick counter
 │           ├── gic.rs      # GIC-400 driver (GICv2)
 │           ├── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick)
-│           └── mmu.rs      # MMU setup: identity mapping, 2MB blocks, MAIR/TCR/SCTLR
+│           └── mmu.rs      # MMU setup: identity mapping, 2MB blocks, W^X (RoCode/Ram/Device), MAIR/TCR/SCTLR
 └── bsp/                    # Board Support Packages
     ├── Cargo.toml
     └── src/
@@ -168,8 +168,9 @@ tiny_os/
 - [x] Physical page frame allocator: bitmap-based, 4KB pages, up to 4GB
 - [x] `PageAllocator` HAL trait in `arch::mm`
 - [x] AArch64 MMU setup: 4KB granule, 2MB block descriptors, 48-bit VA
-- [x] Identity mapping for RAM (Normal WB Cacheable) and MMIO (Device-nGnRnE)
+- [x] Identity mapping with W^X: code RO+X (RoCode), data RW+NX (Ram), MMIO RW+NX (Device)
 - [x] MAIR (3 indices), TCR (40-bit IPS, EPD1), SCTLR (MMU + D-cache + I-cache)
+- [x] Linker script `__data_start` symbol at 2MB boundary for clean W^X permission split
 - [x] Linked-list heap allocator with `kmalloc`/`kfree`, seeded from PMM pages (256KB)
 - [x] BSP memory region constants (RAM defaults, peripheral MMIO, RP1 window)
 - [x] Shell `mem` command: page stats, heap stats, MMU status
@@ -186,3 +187,7 @@ tiny_os/
 - [ ] Preemption from timer tick ISR
 - [ ] `task_create`, `task_delete`, `task_suspend`, `task_resume` API
 - [ ] Critical sections: DAIF masking with nesting count
+- [ ] Per-task execution-time budget enforcement (`os_task_set_budget`, `os_task_get_remaining`)
+- [ ] Deadline-miss detection with `os_hook_deadline_miss` callback
+- [ ] Task criticality levels (SAFETY_CRITICAL, MISSION_CRITICAL, STANDARD, BEST_EFFORT)
+- [ ] `os_sched_utilization()` for Rate Monotonic Analysis validation

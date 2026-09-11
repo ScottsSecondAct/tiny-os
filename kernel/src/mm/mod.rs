@@ -12,6 +12,7 @@ const HEAP_PAGES: usize = 64; // 256 KB initial heap
 
 extern "C" {
     static __stack_top: u8;
+    static __data_start: u8;
 }
 
 struct PmmCell(UnsafeCell<pmm::BitmapAllocator>);
@@ -41,8 +42,10 @@ pub fn init() {
 
     // Build MMU identity-mapping regions and enable.
     let regions = bsp_mem_regions(ram_base, ram_size);
+    let data_start = unsafe { &__data_start as *const u8 as usize };
     unsafe { mmu::init(&regions) };
-    kprintln!("MMU: enabled, identity-mapped, caches on");
+    kprintln!("MMU: enabled, identity-mapped, W^X, caches on");
+    kprintln!("W^X: code RX {:#x}-{:#x}, data RW+NX {:#x}+", 0x80000usize, data_start, data_start);
 
     // Seed the heap from PMM pages.
     let mut heap_bytes = 0usize;
@@ -75,14 +78,23 @@ fn bsp_default_ram() -> (usize, usize) {
     }
 }
 
-fn bsp_mem_regions(ram_base: usize, ram_size: usize) -> [MemRegion; 4] {
+fn bsp_mem_regions(ram_base: usize, ram_size: usize) -> [MemRegion; 6] {
+    // W^X: split kernel into code (RX, no write) and data (RW, no execute).
+    // __data_start is 2MB-aligned by the linker script. The first 2MB block
+    // contains both firmware data (0-0x80000) and kernel code; mapped RX
+    // since we don't need to write to either from the kernel.
+    let data_start = unsafe { &__data_start as *const u8 as usize };
+    let code_size = data_start - ram_base;
+    let data_size = ram_base + ram_size - data_start;
+
     #[cfg(feature = "bsp-qemu")]
     {
         use bsp::qemu_virt::memory_map as mm;
         [
-            MemRegion { base: ram_base, size: ram_size, kind: MemKind::Ram },
+            MemRegion { base: ram_base, size: code_size, kind: MemKind::RoCode },
+            MemRegion { base: data_start, size: data_size, kind: MemKind::Ram },
             MemRegion { base: mm::PERIPH_BASE, size: mm::PERIPH_SIZE, kind: MemKind::Device },
-            // Padding entries (unused, zero-size).
+            MemRegion { base: 0, size: 0, kind: MemKind::Ram },
             MemRegion { base: 0, size: 0, kind: MemKind::Ram },
             MemRegion { base: 0, size: 0, kind: MemKind::Ram },
         ]
@@ -91,10 +103,11 @@ fn bsp_mem_regions(ram_base: usize, ram_size: usize) -> [MemRegion; 4] {
     {
         use bsp::rpi5::memory_map as mm;
         [
-            MemRegion { base: ram_base, size: ram_size, kind: MemKind::Ram },
+            MemRegion { base: ram_base, size: code_size, kind: MemKind::RoCode },
+            MemRegion { base: data_start, size: data_size, kind: MemKind::Ram },
             MemRegion { base: mm::PERIPH_BASE, size: mm::PERIPH_SIZE, kind: MemKind::Device },
             MemRegion { base: mm::RP1_PERIPH_BASE, size: mm::RP1_PERIPH_SIZE, kind: MemKind::Device },
-            // Padding entry.
+            MemRegion { base: 0, size: 0, kind: MemKind::Ram },
             MemRegion { base: 0, size: 0, kind: MemKind::Ram },
         ]
     }

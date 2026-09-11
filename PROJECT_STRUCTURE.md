@@ -17,7 +17,9 @@ tiny_os/
 │                           #   -Tkernel/link.ld; default target triple
 │
 ├── docs/                   # Specifications (kept as reference)
-│   └── tiny_os_specification_v1.1.md
+│   └── tiny_os_specification_v1.1.md   # System specification v1.2 — includes RTOS
+│                                       #   certification: WCET, MC/DC, health monitor,
+│                                       #   watchdog, mixed-criticality, traceability
 │
 ├── arch/                   # Architecture crate — hardware register access & HAL traits
 │   ├── Cargo.toml
@@ -39,8 +41,8 @@ tiny_os/
 │           ├── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
 │           │               #   CVAL-based acknowledge)
 │           └── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
-│                           #   mapping with 2MB blocks, MAIR/TCR/SCTLR config,
-│                           #   Normal WB Cacheable (RAM) + Device-nGnRnE (MMIO)
+│                           #   mapping with 2MB blocks, W^X policy (RoCode RX,
+│                           #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config
 │
 ├── bsp/                    # Board Support Package crate — concrete HAL implementations
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
@@ -61,7 +63,8 @@ tiny_os/
 └── kernel/                 # Kernel binary crate
     ├── Cargo.toml          # Depends on arch + bsp; propagates bsp-* feature flags
     ├── link.ld             # Linker script: .text.boot at 0x80000, then .text,
-    │                       #   .rodata, .data, .bss (16-byte aligned), .stack
+    │                       #   .rodata, ALIGN(2M) __data_start (W^X boundary),
+    │                       #   .data, .bss (16-byte aligned), .stack
     └── src/
         ├── main.rs         # kmain(): init UART/GIC/timer, mm::init(), tick verify, shell
         ├── panic.rs        # #[panic_handler]: print message + location, WFE halt
@@ -88,6 +91,9 @@ tiny_os/
 - **Kernel load address** — `0x80000` (RPi firmware convention, enforced by `link.ld`).
 - **BSP feature flags** are mutually exclusive; enabling both causes a compile error
   (duplicate `PlatformUart` definition).
+- **W^X memory policy** — no memory is simultaneously writable and executable.
+  Code/rodata mapped as RO+X, data/BSS/heap/stack mapped as RW+NX, MMIO as RW+NX.
+  The `__data_start` symbol is 2MB-aligned to match block descriptor granularity.
 
 ## QEMU Notes
 
