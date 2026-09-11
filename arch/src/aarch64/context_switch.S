@@ -55,9 +55,12 @@ context_switch:
 
 // Task entry trampoline. New tasks start here after their first context switch.
 // x19 = entry function pointer, x20 = argument.
+// The scheduler lock is held when we get here (by the schedule() or start()
+// that switched to this task), so release it before enabling IRQs.
     .globl task_trampoline
     .type task_trampoline, @function
 task_trampoline:
+    bl      sched_unlock_new_task
     msr     daifclr, #2         // enable IRQs before entering the task
     mov     x0, x20             // arg
     blr     x19                 // entry(arg) -> !

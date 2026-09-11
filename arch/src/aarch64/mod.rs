@@ -6,4 +6,5 @@ pub mod context;
 pub mod exceptions;
 pub mod gic;
 pub mod mmu;
+pub mod smp;
 pub mod timer;

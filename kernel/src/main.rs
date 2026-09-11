@@ -11,15 +11,19 @@ pub mod klog;
 mod mm;
 pub mod sched;
 mod shell;
+pub mod spinlock;
 pub mod sync;
 pub mod watchdog;
 
-use arch::aarch64::{exceptions as exc, gic, timer};
+use arch::aarch64::{exceptions as exc, gic, mmu, timer, smp};
 use arch::uart::UartDriver;
 use bsp::PlatformUart;
 use sched::Criticality;
 use sync::mutex::{Mutex, MutexProtocol};
 use sync::semaphore::Semaphore;
+use core::sync::atomic::{AtomicU8, Ordering};
+
+const NUM_SECONDARY_CORES: usize = 3;
 
 #[repr(align(16))]
 struct TaskStack<const N: usize>([u8; N]);
@@ -29,6 +33,12 @@ static mut DEMO_STACK_A: TaskStack<8192> = TaskStack([0; 8192]);
 static mut DEMO_STACK_B: TaskStack<8192> = TaskStack([0; 8192]);
 static mut WATCHDOG_STACK: TaskStack<4096> = TaskStack([0; 4096]);
 static mut HEALTH_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+
+// Per-secondary-core boot stacks (referenced by boot.S via SECONDARY_STACKS).
+#[repr(align(16))]
+struct SecondaryStacks([[u8; 8192]; smp::MAX_CORES]);
+#[no_mangle]
+static mut SECONDARY_STACKS: SecondaryStacks = SecondaryStacks([[0; 8192]; smp::MAX_CORES]);
 
 static SHARED_MUTEX: Mutex = Mutex::new(MutexProtocol::PriorityInheritance);
 struct SyncU64(core::cell::UnsafeCell<u64>);
@@ -40,6 +50,9 @@ static SEM_SIGNAL: Semaphore = Semaphore::binary(0);
 
 const WATCHDOG_TIMEOUT_MS: u32 = 5000;
 const WATCHDOG_KICK_INTERVAL_MS: u32 = 2000;
+
+/// Tracks how many secondary cores have finished init.
+static CORES_ONLINE: AtomicU8 = AtomicU8::new(1);
 
 fn shell_task(_arg: usize) -> ! {
     let mut uart = PlatformUart::new();
@@ -56,7 +69,7 @@ fn demo_task_a(_arg: usize) -> ! {
         let val = *counter;
         SHARED_MUTEX.unlock().expect("unlock failed");
 
-        kprintln!("[task-a] counter={}", val);
+        kprintln!("[task-a@core{}] counter={}", smp::core_id(), val);
         SEM_SIGNAL.post().ok();
         sched::delay(2000);
     }
@@ -71,7 +84,7 @@ fn demo_task_b(_arg: usize) -> ! {
         let val = unsafe { *SHARED_COUNTER.0.get() };
         SHARED_MUTEX.unlock().expect("unlock failed");
 
-        kprintln!("[task-b] saw counter={}", val);
+        kprintln!("[task-b@core{}] saw counter={}", smp::core_id(), val);
         sched::delay(500);
     }
 }
@@ -83,13 +96,38 @@ fn watchdog_kick_task(_arg: usize) -> ! {
     }
 }
 
+/// Entry point for secondary cores. Called from boot.S → secondary_boot → bl secondary_main.
+/// At this point: EL1, per-core stack set up, FP/SIMD enabled, vectors installed.
+#[no_mangle]
+pub extern "C" fn secondary_main(core_id: usize) -> ! {
+    // Enable MMU using page tables built by the primary core.
+    unsafe { mmu::init_secondary() };
+
+    // Initialize this core's GIC CPU interface.
+    gic::init_cpu_interface();
+
+    // Enable the virtual timer PPI on this core.
+    gic::set_priority(timer::TIMER_IRQ_ID, 0x80);
+    gic::enable(timer::TIMER_IRQ_ID);
+    timer::init_secondary();
+
+    // Enable IRQs.
+    unsafe { core::arch::asm!("msr daifclr, #2") };
+
+    kprintln!("core {}: online", core_id);
+    CORES_ONLINE.fetch_add(1, Ordering::Release);
+
+    // Start the scheduler on this core (does not return).
+    sched::start_secondary(core_id);
+}
+
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
     let mut uart = PlatformUart::new();
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os Phase 6 boot");
+    kprintln!("tiny_os Phase 7 boot (SMP)");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
@@ -120,7 +158,7 @@ pub extern "C" fn kmain() -> ! {
     watchdog::init(WATCHDOG_TIMEOUT_MS);
     kprintln!("watchdog: enabled, {}ms timeout", WATCHDOG_TIMEOUT_MS);
 
-    // Initialize the scheduler (creates idle task).
+    // Initialize the scheduler (creates idle task for core 0).
     sched::init();
 
     // Create the shell task at priority 10.
@@ -147,9 +185,22 @@ pub extern "C" fn kmain() -> ! {
     sched::task_create("health-mon", 1, Criticality::MissionCritical, health_stack, health::health_task, 0)
         .expect("failed to create health monitor task");
 
-    kprintln!("sched: {} tasks created", sched::task_count());
+    kprintln!("sched: {} tasks created on core 0", sched::task_count());
+
+    // Wake secondary cores.
+    kprintln!("smp: waking {} secondary cores...", NUM_SECONDARY_CORES);
+    for core_id in 1..=NUM_SECONDARY_CORES {
+        smp::start_core(core_id);
+    }
+
+    // Wait for all secondary cores to come online.
+    while CORES_ONLINE.load(Ordering::Acquire) < (NUM_SECONDARY_CORES + 1) as u8 {
+        core::hint::spin_loop();
+    }
+    kprintln!("smp: all {} cores online", CORES_ONLINE.load(Ordering::Relaxed));
+
     kprintln!("type 'help' for commands");
 
-    // Start the scheduler — this does not return.
+    // Start the scheduler on core 0 — this does not return.
     sched::start();
 }

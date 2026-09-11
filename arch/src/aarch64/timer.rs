@@ -72,8 +72,20 @@ pub fn init(tick_rate_hz: u32) {
     unsafe { (*TIMER.0.get()).init(tick_rate_hz) }
 }
 
+/// Initialize the virtual timer on a secondary core using the reload_value
+/// computed during the primary core's init().
+pub fn init_secondary() {
+    // SAFETY: reload_value was set during primary core init; read-only here.
+    let reload = unsafe { (*TIMER.0.get()).reload_value };
+    unsafe {
+        core::arch::asm!("msr cntv_ctl_el0, {}", in(reg) 0u64);
+        core::arch::asm!("msr cntv_tval_el0, {}", in(reg) reload as u64);
+        core::arch::asm!("msr cntv_ctl_el0, {}", in(reg) 1u64);
+    }
+}
+
 pub fn handle_tick() {
-    // SAFETY: Called from IRQ context; single-core, no reentrancy.
+    // SAFETY: Called from IRQ context; per-core timer registers.
     unsafe { (*TIMER.0.get()).acknowledge() }
     super::exceptions::increment_tick();
 }

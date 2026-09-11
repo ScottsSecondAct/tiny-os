@@ -16,11 +16,14 @@ const GICD_ICENABLER: usize = 0x180;
 const GICD_IPRIORITYR: usize = 0x400;
 const GICD_ITARGETSR: usize = 0x800;
 const GICD_ICFGR: usize = 0xC00;
+const GICD_SGIR: usize = 0xF00;
 
 const GICC_CTLR: usize = 0x000;
 const GICC_PMR: usize = 0x004;
 const GICC_IAR: usize = 0x00C;
 const GICC_EOIR: usize = 0x010;
+
+pub const SGI_RESCHEDULE: u32 = 0;
 
 pub struct Gic400 {
     gicd_base: usize,
@@ -28,8 +31,9 @@ pub struct Gic400 {
 }
 
 struct GicCell(UnsafeCell<Option<Gic400>>);
-// SAFETY: Single-core; GIC is written once during init, then accessed only
-// from IRQ context which is serialized on a single core.
+// SAFETY: GIC distributor is written once during init. CPU interface
+// registers are per-core banked. Access from IRQ context is serialized
+// per-core by IRQ masking.
 unsafe impl Sync for GicCell {}
 
 static GIC: GicCell = GicCell(UnsafeCell::new(None));
@@ -130,7 +134,7 @@ impl InterruptController for Gic400 {
     }
 
     fn acknowledge(&mut self) -> u32 {
-        self.gicc_read(GICC_IAR) & 0x3FF
+        self.gicc_read(GICC_IAR)
     }
 
     fn end_of_interrupt(&mut self, irq_id: u32) {
@@ -154,8 +158,20 @@ pub fn init(gicd_base: usize, gicc_base: usize) {
     unsafe { *GIC.0.get() = Some(gic) }
 }
 
+/// Initialize this core's GIC CPU interface. Called by secondary cores
+/// after the distributor has been initialized by core 0.
+pub fn init_cpu_interface() {
+    // SAFETY: GIC struct is initialized; GICC registers are per-core banked.
+    unsafe {
+        if let Some(gic) = (*GIC.0.get()).as_mut() {
+            gic.gicc_write(GICC_PMR, 0xFF);
+            gic.gicc_write(GICC_CTLR, 1);
+        }
+    }
+}
+
 pub fn enable(irq_id: u32) {
-    // SAFETY: GIC is initialized; single-core.
+    // SAFETY: GIC is initialized; single-core or spinlock-protected.
     unsafe {
         if let Some(gic) = (*GIC.0.get()).as_mut() {
             gic.enable(irq_id);
@@ -172,6 +188,8 @@ pub fn set_priority(irq_id: u32, priority: u8) {
     }
 }
 
+/// Acknowledge an interrupt. Returns the full IAR value (INTID in bits [9:0],
+/// source CPU in bits [12:10] for SGIs). Pass the full value to end_of_interrupt.
 pub fn acknowledge() -> u32 {
     // SAFETY: GIC is initialized; called from IRQ context.
     unsafe {
@@ -182,11 +200,29 @@ pub fn acknowledge() -> u32 {
     }
 }
 
-pub fn end_of_interrupt(irq_id: u32) {
+pub fn end_of_interrupt(iar_value: u32) {
     // SAFETY: Same as acknowledge.
     unsafe {
         if let Some(gic) = (*GIC.0.get()).as_mut() {
-            gic.end_of_interrupt(irq_id);
+            gic.end_of_interrupt(iar_value);
+        }
+    }
+}
+
+/// Send a Software Generated Interrupt (SGI) to a specific core.
+pub fn send_sgi(target_core: u8, sgi_id: u8) {
+    assert!(sgi_id < 16, "SGI ID must be 0-15");
+    assert!((target_core as usize) < 4, "target core out of range");
+
+    // GICD_SGIR format:
+    //   [25:24] = Target list filter (0b00 = use target list in bits [23:16])
+    //   [23:16] = CPU target list (bit per core)
+    //   [3:0]   = SGI INTID
+    let val = ((1u32 << target_core) << 16) | (sgi_id as u32);
+    // SAFETY: GIC is initialized; GICD_SGIR is a write-only register.
+    unsafe {
+        if let Some(gic) = (*GIC.0.get()).as_mut() {
+            gic.gicd_write(GICD_SGIR, val);
         }
     }
 }

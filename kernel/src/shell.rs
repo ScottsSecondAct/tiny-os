@@ -1,6 +1,7 @@
 use crate::{kprint, kprintln, klog, mm, sched, watchdog};
 use arch::aarch64::exceptions;
 use arch::aarch64::mmu;
+use arch::aarch64::smp;
 use arch::aarch64::timer;
 use arch::uart::UartDriver;
 
@@ -48,16 +49,6 @@ pub fn run(uart: &mut impl UartDriver) -> ! {
 }
 
 fn try_read_byte(_uart: &mut impl UartDriver) -> Option<u8> {
-    // PL011 FR register: bit 4 = RXFE (RX FIFO Empty).
-    // We read the FR register at a fixed offset from the UART base.
-    // This is a polling approach — UART RX interrupts can be added later.
-    //
-    // Both the RP1 UART and BCM2711 PL011 share the same register layout:
-    //   DR at +0x000, FR at +0x018.
-    //
-    // We access the UART indirectly through a raw pointer trick on the
-    // UartDriver. Since both BSP UARTs are zero-sized types wrapping MMIO,
-    // we read the FR register directly.
     let fr_addr = uart_fr_addr();
     if fr_addr == 0 {
         return None;
@@ -94,7 +85,7 @@ fn dispatch(cmd: &str) {
     match base {
         "help" => {
             kprintln!("commands: help, uptime, ticks, info, mem, tasks, log, health,");
-            kprintln!("          yield, svc, reboot");
+            kprintln!("          smp, yield, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
@@ -111,6 +102,8 @@ fn dispatch(cmd: &str) {
             kprintln!("timer freq:  {} Hz", freq);
             kprintln!("tick rate:   1000 Hz");
             kprintln!("tick count:  {}", exceptions::tick_count());
+            kprintln!("cores:       {}", sched::active_cores());
+            kprintln!("this core:   {}", smp::core_id());
         }
         "mem" => {
             let (total, used, free) = mm::page_stats();
@@ -135,6 +128,11 @@ fn dispatch(cmd: &str) {
                         id, name, prio, state_str, crit.as_str(), run_ticks);
                 }
             }
+        }
+        "smp" => {
+            let cores = sched::active_cores();
+            kprintln!("SMP: {} cores active", cores);
+            kprintln!("this core: {}", smp::core_id());
         }
         "log" => {
             if arg.starts_with("level ") {

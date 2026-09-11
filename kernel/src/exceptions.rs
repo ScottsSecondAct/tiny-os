@@ -5,17 +5,21 @@ use arch::aarch64::{exceptions, gic, timer};
 
 #[no_mangle]
 extern "C" fn handle_irq(_tf: &mut TrapFrame) {
-    let irq_id = gic::acknowledge();
+    let iar = gic::acknowledge();
+    let irq_id = iar & 0x3FF;
 
     if irq_id < 1020 {
-        if !exceptions::dispatch_irq(irq_id) {
+        if irq_id == gic::SGI_RESCHEDULE {
+            // IPI reschedule — handled after EOI below.
+        } else if !exceptions::dispatch_irq(irq_id) {
             kprintln!("warning: unhandled IRQ {}", irq_id);
         }
-        gic::end_of_interrupt(irq_id);
+        gic::end_of_interrupt(iar);
 
-        // After handling a timer tick, let the scheduler check for preemption.
         if irq_id == timer::TIMER_IRQ_ID {
             sched::tick();
+        } else if irq_id == gic::SGI_RESCHEDULE {
+            sched::ipi_reschedule();
         }
     }
 }

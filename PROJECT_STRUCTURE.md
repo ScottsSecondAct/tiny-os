@@ -30,24 +30,27 @@ tiny_os/
 │       ├── timer.rs        # Timer trait definition
 │       ├── mm.rs           # PageAllocator trait definition
 │       ├── context.rs      # Context HAL trait: new_context(), switch()
+│       ├── smp.rs          # SmpBoot HAL trait: core_id(), num_cores(), start_core()
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
-│           ├── boot.S      # _start: save DTB ptr, park secondaries, EL3→EL1 (secure)
-│           │               #   or EL2→EL1 drop, zero BSS, store DTB_PTR,
-│           │               #   set SP, CPACR, VBAR, bl kmain
+│           ├── boot.S      # _start: DTB save, spin-table parking, secondary_boot
+│           │               #   (EL3/EL2→EL1 drop for all cores), BSS zero, kmain
 │           ├── vectors.S   # Exception vector table (2KB aligned, 16 entries),
 │           │               #   TrapFrame save/restore macros, handler stubs
 │           ├── exceptions.rs # TrapFrame struct, IRQ dispatch table, tick counter
-│           ├── gic.rs      # GIC-400 (GICv2) driver: distributor + CPU interface
+│           ├── gic.rs      # GIC-400 (GICv2) driver: distributor + per-CPU interface,
+│           │               #   SGI for IPI reschedule
 │           ├── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
-│           │               #   CVAL-based acknowledge)
+│           │               #   CVAL-based acknowledge, secondary core init)
+│           ├── smp.rs      # AArch64 SMP: spin-table wakeup via SEV, core_id()
 │           ├── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
 │           │               #   mapping with 2MB blocks, W^X policy (RoCode RX,
 │           │               #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config
 │           ├── context.rs  # Aarch64Context: builds fake stack frame for new
 │           │               #   tasks, wraps context_switch FFI call
 │           └── context_switch.S  # AArch64 context switch (save/restore x19-x30,
-│                           #   swap SP) and task_trampoline (IRQ enable + entry call)
+│                           #   swap SP) and task_trampoline (sched lock release +
+│                           #   IRQ enable + entry call)
 │
 ├── bsp/                    # Board Support Package crate — concrete HAL implementations
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
@@ -71,20 +74,19 @@ tiny_os/
     │                       #   .rodata, ALIGN(2M) __data_start (W^X boundary),
     │                       #   .data, .bss (16-byte aligned), .stack
     └── src/
-        ├── main.rs         # kmain(): init UART/GIC/timer, mm::init(), tick verify,
-        │                   #   sched::init(), create tasks, sched::start()
+        ├── main.rs         # kmain(): init UART/GIC/timer, mm, sched, SMP wakeup;
+        │                   #   secondary_main(): per-core MMU/GIC/timer init
         ├── panic.rs        # #[panic_handler]: print message + location, WFE halt
-        ├── print.rs        # kprint!() / kprintln!() macros via core::fmt::Write
-        ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), sync exception
-        │                   #   handler (SVC detection, ESR decoding), unhandled trap;
-        │                   #   timer tick calls sched::tick() for preemption
+        ├── print.rs        # kprint!() / kprintln!() macros via spinlock-serialized Write
+        ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), IPI handler,
+        │                   #   sync exception (SVC, ESR decoding), unhandled trap
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
-        │                   #   tasks, yield, svc, reboot; uses sched::delay() polling
-        ├── sched.rs        # 256-level fixed-priority preemptive scheduler: TCB array,
-        │                   #   per-priority FIFO ready queues, 4×u64 bitmap for O(1)
-        │                   #   dispatch, delay-based blocking, CriticalSection RAII guard,
-        │                   #   WaitResult/base_priority for sync, budget enforcement,
-        │                   #   criticality levels, stack watermarks, CPU utilization
+        │                   #   tasks, smp, log, health, yield, svc, reboot
+        ├── spinlock.rs     # Ticket spinlock with IRQ save/restore for SMP
+        ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: global run
+        │                   #   queue with spinlock, per-core current task, per-core
+        │                   #   idle tasks, IPI-triggered reschedule, budget enforcement,
+        │                   #   criticality, stack watermarks, CPU utilization
         ├── klog.rs         # Ring-buffer log subsystem: 5 levels (ERROR..TRACE),
         │                   #   timestamps, module tags, 64-entry buffer, BufWriter formatter
         ├── watchdog.rs     # Software watchdog: tick-based counter with configurable timeout,
@@ -129,3 +131,7 @@ tiny_os/
 - The virtual timer (CNTV, INTID 27) is used instead of the physical timer because
   CNTP doesn't fire from non-secure EL1 on QEMU's raspi4b.
 - Real Pi 5 firmware enters at EL2 (non-secure) — `boot.S` handles EL2→EL1 directly.
+- SMP: all 4 cores start at `_start`; secondaries spin on `SMP_RELEASE_TABLE` (in `.data`)
+  until core 0 writes the `secondary_boot` entry address and issues SEV. Each secondary
+  does its own EL3→EL1 drop, per-core stack/GIC/MMU/timer init, then calls `secondary_main`.
+- Run with `-smp 4` to enable all 4 cores.

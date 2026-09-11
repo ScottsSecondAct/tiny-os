@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 6 complete** — Driver framework and logging: klog ring-buffer subsystem with 5 log levels, per-task execution budgets with deadline-miss detection, task criticality levels, stack watermark tracking, software watchdog with auto-kick task, health monitoring, CPU utilization tracking, and driver trait definition. Built on Phase 5's sync primitives (mutex PIP/PCP, semaphores, event flags, message queues), Phase 4's preemptive 256-level scheduler, Phase 3's MMU (W^X), and Phase 2's GIC-400 + ARM Generic Timer.
+**Phase 7 complete** — Symmetric Multiprocessing (SMP): all 4 cores online via spin-table wakeup, ticket spinlock for SMP mutual exclusion, global run queue with spinlock protection, per-core current task tracking and idle tasks, IPI via GIC SGI for cross-core reschedule, serialized UART output. Tasks migrate across all 4 cores with correct mutex/semaphore operation. Built on Phase 6's logging/watchdog/health, Phase 5's sync primitives, Phase 4's preemptive 256-level scheduler, Phase 3's MMU (W^X), and Phase 2's GIC-400 + ARM Generic Timer.
 
 ## Target Hardware
 

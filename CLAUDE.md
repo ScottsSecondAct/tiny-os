@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 6: Driver Framework & Logging** — complete. klog ring-buffer subsystem with 5 log levels, per-task execution budgets with deadline-miss detection, task criticality levels, stack watermark tracking, software watchdog with auto-kick task, health monitoring task, CPU utilization tracking, driver trait definition. Next up: Phase 7 (Symmetric Multiprocessing).
+**Phase 7: Symmetric Multiprocessing (SMP)** — complete. All 4 cores online via spin-table wakeup in boot.S, ticket spinlock for SMP mutual exclusion, global run queue with spinlock protection, per-core current task tracking, per-core idle tasks, IPI via GIC SGI for cross-core reschedule, serialized UART output. Tasks migrate across all 4 cores. Built on Phase 6's logging/watchdog/health and Phase 5's sync primitives. Next up: Phase 8 (Storage & DMA).
 
 ## Target Hardware
 
@@ -77,8 +77,9 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, yield, svc, reboot)
-│   │   ├── sched.rs        # 256-level fixed-priority scheduler, TCB, delay, budget, criticality, utilization
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, yield, svc, reboot)
+│   │   ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: per-core current, spinlock, IPI
+│   │   ├── spinlock.rs     # Ticket spinlock with IRQ save/restore for SMP mutual exclusion
 │   │   ├── klog.rs         # Ring-buffer log subsystem: 5 levels, timestamps, module tags, 64-entry buffer
 │   │   ├── watchdog.rs     # Software watchdog: tick-based counter, auto-kick task at priority 0
 │   │   ├── health.rs       # Health monitor task: stack watermarks, CPU utilization, watchdog status
@@ -104,16 +105,18 @@ tiny_os/
 │       ├── timer.rs        # Timer trait
 │       ├── mm.rs           # PageAllocator trait
 │       ├── context.rs      # Context HAL trait (new_context, switch)
+│       ├── smp.rs          # SmpBoot HAL trait (core_id, num_cores, start_core)
 │       └── aarch64/
 │           ├── mod.rs
-│           ├── boot.S      # _start entry, DTB save, EL3→EL1 drop, secondary core parking
+│           ├── boot.S      # _start, spin-table secondary parking, secondary_boot EL drop
 │           ├── vectors.S   # Exception vector table (2KB aligned, 16 entries)
 │           ├── exceptions.rs # TrapFrame, IRQ dispatch table, tick counter
-│           ├── gic.rs      # GIC-400 driver (GICv2)
-│           ├── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick)
-│           ├── mmu.rs      # MMU setup: identity mapping, 2MB blocks, W^X (RoCode/Ram/Device), MAIR/TCR/SCTLR
+│           ├── gic.rs      # GIC-400 driver: distributor, CPU interface, SGI for IPI
+│           ├── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick, secondary init)
+│           ├── mmu.rs      # MMU: identity mapping, 2MB blocks, W^X, secondary core init
+│           ├── smp.rs      # AArch64 SMP: spin-table wakeup, core_id, start_core
 │           ├── context.rs  # Aarch64Context: new_context (fake frame), switch wrapper
-│           └── context_switch.S  # AArch64 context switch (x19-x30 save/restore) + task trampoline
+│           └── context_switch.S  # Context switch (x19-x30) + task trampoline (sched lock release)
 └── bsp/                    # Board Support Packages
     ├── Cargo.toml
     └── src/
@@ -237,12 +240,27 @@ tiny_os/
 - [x] Extended `tasks` command showing criticality and CPU ticks per task
 - [x] Verified on QEMU: 6 tasks (incl. watchdog-kick and health-mon), no timeouts, stable operation
 
-## Phase 7 Deliverables Checklist (next)
+### Phase 7 — Symmetric Multiprocessing (SMP) ✅
 
-- [ ] Secondary core wakeup sequence (`smp.rs`) via spin-table / PSCI
-- [ ] Per-core stacks and GIC CPU interface initialization
-- [ ] `SmpBoot` HAL trait
-- [ ] Per-core run queues with work-stealing or global run queue with spinlock
-- [ ] Spinlock (`SpinMutex`) for SMP critical sections
-- [ ] IPI (inter-processor interrupts) for scheduler cross-core wakeup
-- [ ] Verified preemption and context switch on all 4 cores simultaneously
+- [x] Spin-table secondary core wakeup in boot.S (release addresses in `.data` section)
+- [x] Secondary boot path: EL3/EL2→EL1 drop, per-core stack, FP/SIMD, vectors, MMU, GIC CPU interface, timer
+- [x] Per-core stacks (8KB each for secondary cores, 512KB for primary)
+- [x] `SmpBoot` HAL trait (`arch::smp`) with `core_id()`, `num_cores()`, `start_core()`
+- [x] AArch64 SMP implementation using spin-table + SEV wakeup
+- [x] Ticket spinlock (`SpinLock`) with IRQ save/restore for SMP mutual exclusion
+- [x] Global run queue with spinlock (shared 256-level ready queues across all cores)
+- [x] Per-core current task tracking (`current: [u8; MAX_CORES]`) and per-core idle tasks
+- [x] IPI via GIC SGI #0 for cross-core reschedule when idle cores should pick up work
+- [x] Scheduler lock held across context_switch, released by resumed task (or task_trampoline for new tasks)
+- [x] UART print serialization via spinlock (clean output across concurrent cores)
+- [x] Shell `smp` command and `info` command showing core count and current core
+- [x] Verified on QEMU: all 4 cores online, tasks migrating across cores 0-3, mutex/semaphore correct across cores
+
+## Phase 8 Deliverables Checklist (next)
+
+- [ ] DMA engine driver (`DmaEngine` HAL trait)
+- [ ] Zero-copy buffer pool (`NetBuf`)
+- [ ] EMMC2 / SDIO driver
+- [ ] `BlockDevice` HAL trait
+- [ ] Partition table parsing (MBR)
+- [ ] Block cache (LRU, write-back)

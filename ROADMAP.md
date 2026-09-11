@@ -119,18 +119,23 @@ A structured driver registry, kernel logging subsystem, health monitoring, and b
 
 ---
 
-## Phase 7 — Symmetric Multiprocessing (SMP)
+## Phase 7 — Symmetric Multiprocessing (SMP) ✅
 
 Bring up all four Cortex-A76 cores and extend the scheduler for multi-core operation.
 
 **Deliverables:**
-- [ ] Secondary core wakeup sequence (`smp.rs`) via spin-table / PSCI
-- [ ] Per-core stacks and GIC CPU interface initialization
-- [ ] `SmpBoot` HAL trait
-- [ ] Per-core run queues with work-stealing or global run queue with spinlock
-- [ ] Spinlock (`SpinMutex`) for SMP critical sections
-- [ ] IPI (inter-processor interrupts) for scheduler cross-core wakeup
-- [ ] Verified preemption and context switch on all 4 cores simultaneously
+- [x] Secondary core wakeup via spin-table in boot.S (per-core release addresses in `.data`)
+- [x] Secondary core boot path: EL3/EL2→EL1 drop, per-core stack, FP/SIMD, vectors, MMU, GIC, timer
+- [x] Per-core stacks (8KB each) and GIC CPU interface initialization per secondary core
+- [x] `SmpBoot` HAL trait (`arch::smp`) with `core_id()`, `num_cores()`, `start_core()`
+- [x] AArch64 SMP implementation (`arch::aarch64::smp`) using spin-table wakeup + SEV
+- [x] Ticket spinlock (`SpinLock`) for SMP mutual exclusion with IRQ save/restore
+- [x] Global run queue with spinlock (all cores share one set of 256-level ready queues)
+- [x] Per-core current task tracking and per-core idle tasks
+- [x] IPI via GIC SGI #0 for cross-core reschedule notifications
+- [x] UART print serialization via spinlock (no interleaved output across cores)
+- [x] Scheduler lock protocol: held across context_switch, released by resumed task (or task_trampoline for new tasks)
+- [x] Verified on QEMU: all 4 cores online, tasks migrating across cores, correct mutex/semaphore operation
 
 ---
 

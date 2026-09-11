@@ -173,6 +173,29 @@ unsafe fn map_region(region: &MemRegion) {
     }
 }
 
+/// Enable the MMU on a secondary core using the page tables already
+/// built by the primary core.
+pub unsafe fn init_secondary() {
+    core::arch::asm!("msr mair_el1, {}", in(reg) MAIR_VALUE);
+    core::arch::asm!("msr tcr_el1, {}", in(reg) TCR_VALUE);
+
+    let ttbr0 = &raw const L0 as u64;
+    core::arch::asm!("msr ttbr0_el1, {}", in(reg) ttbr0);
+    core::arch::asm!("isb");
+
+    core::arch::asm!("tlbi vmalle1");
+    core::arch::asm!("dsb sy");
+    core::arch::asm!("isb");
+
+    let mut sctlr: u64;
+    core::arch::asm!("mrs {}, sctlr_el1", out(reg) sctlr);
+    sctlr |= 1 << 0;  // M
+    sctlr |= 1 << 2;  // C
+    sctlr |= 1 << 12; // I
+    core::arch::asm!("msr sctlr_el1, {}", in(reg) sctlr);
+    core::arch::asm!("isb");
+}
+
 pub fn enabled() -> bool {
     let sctlr: u64;
     unsafe { core::arch::asm!("mrs {}, sctlr_el1", out(reg) sctlr) };
