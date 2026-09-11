@@ -59,11 +59,13 @@ pub struct Tcb {
     pub wait_result: WaitResult,
     pub criticality: Criticality,
     pub core: u8,
+    pub is_user: bool,
     pub ticks_remaining: u32,
     pub delay_ticks: u32,
     pub budget_ticks: u32,
     pub budget_remaining: u32,
     pub total_run_ticks: u64,
+    pub ttbr0: u64,
     pub stack_base: usize,
     pub stack_size: usize,
     pub name: &'static str,
@@ -81,11 +83,13 @@ impl Tcb {
             wait_result: WaitResult::Ok,
             criticality: Criticality::Standard,
             core: 0xFF,
+            is_user: false,
             ticks_remaining: 0,
             delay_ticks: 0,
             budget_ticks: 0,
             budget_remaining: 0,
             total_run_ticks: 0,
+            ttbr0: 0,
             stack_base: 0,
             stack_size: 0,
             name: "",
@@ -214,6 +218,9 @@ static mut IDLE_STACKS: [IdleStack; MAX_CORES] = [
     IdleStack([0; IDLE_STACK_SIZE]),
 ];
 
+// Throwaway slot for discarding a terminated task's context during context_switch.
+static mut DISCARD_SP: u64 = 0;
+
 fn idle_entry(_arg: usize) -> ! {
     loop {
         unsafe { core::arch::asm!("wfe") };
@@ -288,11 +295,13 @@ fn create_idle_task(s: &mut Scheduler, core: usize) {
         wait_result: WaitResult::Ok,
         criticality: Criticality::BestEffort,
         core: core as u8,
+        is_user: false,
         ticks_remaining: 0,
         delay_ticks: 0,
         budget_ticks: 0,
         budget_remaining: 0,
         total_run_ticks: 0,
+        ttbr0: 0,
         stack_base,
         stack_size: IDLE_STACK_SIZE,
         name: match core {
@@ -340,11 +349,13 @@ pub fn task_create(
         wait_result: WaitResult::Ok,
         criticality,
         core: 0xFF,
+        is_user: false,
         ticks_remaining: TIMESLICE_TICKS,
         delay_ticks: 0,
         budget_ticks: 0,
         budget_remaining: 0,
         total_run_ticks: 0,
+        ttbr0: 0,
         stack_base,
         stack_size,
         name,
@@ -370,6 +381,95 @@ pub fn task_create(
 
     SCHED_LOCK.unlock(saved);
     Ok(id)
+}
+
+pub fn task_create_user(
+    name: &'static str,
+    priority: u8,
+    criticality: Criticality,
+    kernel_stack: &'static mut [u8],
+    user_entry: usize,
+    user_stack_top: usize,
+    arg: usize,
+    ttbr0: u64,
+) -> Result<u8, &'static str> {
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+
+    let id = s.alloc_id().ok_or("no TCB slots available")?;
+
+    let stack_base = kernel_stack.as_ptr() as usize;
+    let stack_size = kernel_stack.len();
+    for byte in kernel_stack.iter_mut() {
+        *byte = STACK_CANARY;
+    }
+
+    let kernel_stack_top = unsafe { kernel_stack.as_mut_ptr().add(kernel_stack.len()) };
+    let sp = Aarch64Context::new_user_context(
+        user_entry, user_stack_top, arg, kernel_stack_top,
+    );
+
+    s.tasks[id as usize] = Tcb {
+        sp,
+        id,
+        priority,
+        base_priority: priority,
+        state: TaskState::Ready,
+        wait_result: WaitResult::Ok,
+        criticality,
+        core: 0xFF,
+        is_user: true,
+        ticks_remaining: TIMESLICE_TICKS,
+        delay_ticks: 0,
+        budget_ticks: 0,
+        budget_remaining: 0,
+        total_run_ticks: 0,
+        ttbr0,
+        stack_base,
+        stack_size,
+        name,
+        next: 0xFF,
+    };
+    s.enqueue(id);
+    s.task_count += 1;
+
+    if s.started {
+        send_ipi_to_idle_core(s, smp::core_id());
+    }
+
+    SCHED_LOCK.unlock(saved);
+    Ok(id)
+}
+
+pub fn task_terminate(id: u8) {
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+    let idx = id as usize;
+    if idx >= MAX_TASKS || s.tasks[idx].state == TaskState::Dormant {
+        SCHED_LOCK.unlock(saved);
+        return;
+    }
+
+    let core = smp::core_id();
+    let is_current = s.current[core] == id;
+
+    if s.tasks[idx].ttbr0 != 0 {
+        if is_current {
+            unsafe { arch::aarch64::mmu::switch_ttbr0(arch::aarch64::mmu::kernel_ttbr0()); }
+        }
+        unsafe { arch::aarch64::mmu::free_user_page_table(s.tasks[idx].ttbr0); }
+        s.tasks[idx].ttbr0 = 0;
+    }
+
+    s.tasks[idx].state = TaskState::Dormant;
+    s.tasks[idx].is_user = false;
+    s.task_count -= 1;
+
+    if is_current {
+        s.current[core] = 0xFF;
+        schedule_locked(s, core);
+    }
+    SCHED_LOCK.unlock(saved);
 }
 
 /// Suspend a task.
@@ -622,6 +722,17 @@ pub fn ipi_reschedule() {
 /// Core scheduling logic. Caller must hold SCHED_LOCK.
 /// After context_switch, the RETURNED-TO task resumes here and the
 /// caller releases the lock.
+fn swap_ttbr0_if_needed(cur_ttbr0: u64, next_ttbr0: u64) {
+    if next_ttbr0 != cur_ttbr0 {
+        let ttbr = if next_ttbr0 != 0 {
+            next_ttbr0
+        } else {
+            arch::aarch64::mmu::kernel_ttbr0()
+        };
+        unsafe { arch::aarch64::mmu::switch_ttbr0(ttbr); }
+    }
+}
+
 fn schedule_locked(s: &mut Scheduler, core: usize) {
     if !s.started {
         return;
@@ -634,6 +745,12 @@ fn schedule_locked(s: &mut Scheduler, core: usize) {
             s.tasks[next_id as usize].state = TaskState::Running;
             s.tasks[next_id as usize].ticks_remaining = TIMESLICE_TICKS;
             s.tasks[next_id as usize].core = core as u8;
+
+            swap_ttbr0_if_needed(0, s.tasks[next_id as usize].ttbr0);
+
+            let discard_ptr = unsafe { &raw mut DISCARD_SP };
+            let next_sp_ptr = &s.tasks[next_id as usize].sp as *const u64;
+            unsafe { Aarch64Context::switch(discard_ptr, next_sp_ptr) };
         }
         return;
     }
@@ -650,6 +767,7 @@ fn schedule_locked(s: &mut Scheduler, core: usize) {
             s.tasks[next_id as usize].core = core as u8;
             s.tasks[cur_idx].core = 0xFF;
 
+            swap_ttbr0_if_needed(s.tasks[cur_idx].ttbr0, s.tasks[next_id as usize].ttbr0);
             let cur_sp_ptr = &mut s.tasks[cur_idx].sp as *mut u64;
             let next_sp_ptr = &s.tasks[next_id as usize].sp as *const u64;
             unsafe { Aarch64Context::switch(cur_sp_ptr, next_sp_ptr) };
@@ -692,6 +810,7 @@ fn schedule_locked(s: &mut Scheduler, core: usize) {
     s.tasks[next_idx].ticks_remaining = TIMESLICE_TICKS;
     s.tasks[next_idx].core = core as u8;
 
+    swap_ttbr0_if_needed(s.tasks[cur_idx].ttbr0, s.tasks[next_idx].ttbr0);
     let cur_sp_ptr = &mut s.tasks[cur_idx].sp as *mut u64;
     let next_sp_ptr = &s.tasks[next_idx].sp as *const u64;
 
@@ -906,6 +1025,11 @@ pub fn task_count() -> u8 {
     sched().task_count
 }
 
+pub fn current_task_id() -> u8 {
+    let core = smp::core_id();
+    sched().current[core]
+}
+
 pub fn active_cores() -> u8 {
     sched().num_cores
 }
@@ -953,6 +1077,10 @@ pub fn utilization() -> (u64, u64) {
     let s = sched();
     let busy = s.total_ticks - s.idle_ticks;
     (busy, s.total_ticks)
+}
+
+pub fn tick_count_32() -> u32 {
+    arch::aarch64::exceptions::tick_count() as u32
 }
 
 // --- Stack watermark ---

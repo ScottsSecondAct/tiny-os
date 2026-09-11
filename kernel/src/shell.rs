@@ -1,4 +1,4 @@
-use crate::{kprint, kprintln, fs, klog, mm, netbuf, sched, storage, watchdog};
+use crate::{kprint, kprintln, fs, klog, mm, net, netbuf, sched, storage, watchdog};
 use arch::aarch64::{emmc2, exceptions};
 use arch::aarch64::mmu;
 use arch::aarch64::smp;
@@ -90,7 +90,7 @@ fn dispatch(cmd: &str) {
             kprintln!("commands: help, uptime, ticks, info, mem, tasks, log, health,");
             kprintln!("          smp, sd, sdread <lba>, ls [path], cat <path>,");
             kprintln!("          hexdump <path>, touch <path>, write <path> <text>,");
-            kprintln!("          yield, svc, reboot");
+            kprintln!("          ping <ip>, netstat, ifconfig, yield, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
@@ -333,6 +333,46 @@ fn dispatch(cmd: &str) {
                 kprintln!("Watchdog: disabled");
             }
         }
+        "ping" => {
+            if arg.is_empty() {
+                kprintln!("usage: ping <ip>");
+            } else {
+                match parse_ipv4(arg) {
+                    Some(ip) => {
+                        let seq = net::icmp::send_ping(ip);
+                        kprintln!("PING {} seq={}", ip, seq);
+                        sched::delay(100);
+                        match net::icmp::ping_result(seq) {
+                            Some(rtt) => kprintln!("reply from {} seq={} time={}ms", ip, seq, rtt),
+                            None => kprintln!("request timed out"),
+                        }
+                    }
+                    None => kprintln!("invalid IP address"),
+                }
+            }
+        }
+        "netstat" => {
+            kprintln!("IP:  {}", net::our_ip());
+            kprintln!("MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                net::our_mac()[0], net::our_mac()[1], net::our_mac()[2],
+                net::our_mac()[3], net::our_mac()[4], net::our_mac()[5]);
+            kprintln!("ARP cache:");
+            for entry in net::arp::cache_entries() {
+                if entry.valid {
+                    kprintln!("  {} -> {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                        entry.ip, entry.mac[0], entry.mac[1], entry.mac[2],
+                        entry.mac[3], entry.mac[4], entry.mac[5]);
+                }
+            }
+            kprintln!("sockets: {}", net::socket::socket_count());
+        }
+        "ifconfig" => {
+            kprintln!("lo0: flags=UP,LOOPBACK mtu 1500");
+            kprintln!("  inet {}", net::our_ip());
+            kprintln!("  ether {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                net::our_mac()[0], net::our_mac()[1], net::our_mac()[2],
+                net::our_mac()[3], net::our_mac()[4], net::our_mac()[5]);
+        }
         "yield" => {
             kprintln!("yielding...");
             sched::task_yield();
@@ -353,6 +393,17 @@ fn dispatch(cmd: &str) {
             kprintln!("type 'help' for available commands");
         }
     }
+}
+
+fn parse_ipv4(s: &str) -> Option<net::Ipv4Addr> {
+    let mut octets = [0u8; 4];
+    let mut parts = s.split('.');
+    for octet in octets.iter_mut() {
+        let part = parts.next()?;
+        *octet = part.parse::<u8>().ok()?;
+    }
+    if parts.next().is_some() { return None; }
+    Some(net::Ipv4Addr(octets))
 }
 
 fn parse_u64(s: &str) -> u64 {

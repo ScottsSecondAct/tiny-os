@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 9: Filesystem & Shell** — complete. FAT32 filesystem with VFS abstraction layer, 16-entry file descriptor table, streaming directory iteration (DirCursor), LFN support, read/write/create operations. RamDisk BlockDevice (256 KB in-memory FAT32 volume) for QEMU testing. Storage layer routing between EMMC2 and RamDisk. Shell commands: `ls [path]`, `cat <path>`, `hexdump <path>`, `touch <path>`, `write <path> <text>`. Built on Phase 8's BlockDevice/block cache. Next up: Phase 10 (Networking & User Mode).
+**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit). Shell commands: `ping`, `netstat`, `ifconfig`. User demo task runs at EL0 printing via syscalls. Next up: Phase 11 (Safety Certification).
 
 ## Target Hardware
 
@@ -77,8 +77,20 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, yield, svc, reboot)
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
+│   │   ├── syscall.rs      # Syscall dispatch: SYS_YIELD, SYS_DELAY, SYS_WRITE, SYS_TASK_ID, SYS_UPTIME, SYS_EXIT
+│   │   ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs (.user.text section)
+│   │   ├── net/            # Network stack subsystem
+│   │   │   ├── mod.rs      # Network init, RX dispatch, net_task poll loop
+│   │   │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType)
+│   │   │   ├── arp.rs      # ARP cache (16 entries) + request/reply handling
+│   │   │   ├── ipv4.rs     # IPv4 parse/build (20-byte header), internet checksum
+│   │   │   ├── icmp.rs     # ICMP echo request/reply, ping RTT tracking
+│   │   │   ├── udp.rs      # UDP parse/build (8-byte header), port table
+│   │   │   ├── tcp.rs      # Minimal TCP state machine (client SYN/ACK/FIN, 4 connections)
+│   │   │   ├── socket.rs   # BSD socket API: socket/bind/connect/sendto/recvfrom/close
+│   │   │   └── loopback.rs # Loopback NetDevice for QEMU (swaps src/dst, ICMP req→reply)
 │   │   ├── fs/             # Filesystem subsystem
 │   │   │   ├── mod.rs      # VFS: FsError, 16-entry fd table, open/read/write/close/readdir API
 │   │   │   └── fat32.rs    # FAT32: BPB, FAT chain, dir parsing, LFN, read/write, create
@@ -87,7 +99,7 @@ tiny_os/
 │   │   │   ├── ramdisk.rs  # RAM-backed BlockDevice (256 KB, FAT32-formatted for QEMU)
 │   │   │   ├── mbr.rs      # MBR partition table parser
 │   │   │   └── cache.rs    # LRU write-back block cache (32 lines, 512B each)
-│   │   ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: per-core current, spinlock, IPI
+│   │   ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: per-core current, spinlock, IPI, TTBR0 swap
 │   │   ├── spinlock.rs     # Ticket spinlock with IRQ save/restore for SMP mutual exclusion
 │   │   ├── klog.rs         # Ring-buffer log subsystem: 5 levels, timestamps, module tags, 64-entry buffer
 │   │   ├── watchdog.rs     # Software watchdog: tick-based counter, auto-kick task at priority 0
@@ -104,7 +116,7 @@ tiny_os/
 │   │       ├── dtb.rs      # Minimal FDT parser for /memory node
 │   │       ├── pmm.rs      # Bitmap page frame allocator (4KB pages, up to 4GB)
 │   │       └── heap.rs     # Linked-list heap allocator (kmalloc/kfree)
-│   └── link.ld             # Linker script
+│   └── link.ld             # Linker script (.text.boot, .text, .rodata, .user.text at 0x200000, .data, .bss, .stack)
 ├── arch/                   # Architecture-specific crate
 │   ├── Cargo.toml
 │   └── src/
@@ -117,6 +129,8 @@ tiny_os/
 │       ├── smp.rs          # SmpBoot HAL trait (core_id, num_cores, start_core)
 │       ├── block.rs        # BlockDevice HAL trait (sector read/write)
 │       ├── dma.rs          # DmaEngine HAL trait (channel-based DMA transfers)
+│       ├── net.rs          # NetDevice HAL trait (packet TX/RX)
+│       ├── user.rs         # UserContext HAL trait (EL0 task isolation)
 │       └── aarch64/
 │           ├── mod.rs
 │           ├── boot.S      # _start, spin-table secondary parking, secondary_boot EL drop
@@ -124,11 +138,13 @@ tiny_os/
 │           ├── exceptions.rs # TrapFrame, IRQ dispatch table, tick counter
 │           ├── gic.rs      # GIC-400 driver: distributor, CPU interface, SGI for IPI
 │           ├── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick, secondary init)
-│           ├── mmu.rs      # MMU: identity mapping, 2MB blocks, W^X, secondary core init
+│           ├── mmu.rs      # MMU: identity mapping, 2MB blocks, W^X, secondary core init,
+│           │               #   per-task TTBR0 page tables (L3 4KB), ASID, switch_ttbr0
 │           ├── smp.rs      # AArch64 SMP: spin-table wakeup, core_id, start_core
 │           ├── emmc2.rs    # SDHCI/EMMC2 SD card driver: PIO mode, card init, read/write
-│           ├── context.rs  # Aarch64Context: new_context (fake frame), switch wrapper
-│           └── context_switch.S  # Context switch (x19-x30) + task trampoline (sched lock release)
+│           ├── context.rs  # Aarch64Context: new_context (fake frame), new_user_context, switch wrapper
+│           └── context_switch.S  # Context switch (x19-x30), task_trampoline (sched lock release),
+│                           #   task_trampoline_user (eret to EL0)
 └── bsp/                    # Board Support Packages
     ├── Cargo.toml
     └── src/
@@ -301,9 +317,33 @@ tiny_os/
 - [x] Verified on QEMU: ramdisk mount, ls/cat/hexdump/touch/write all functional, all 4 cores online
 - [x] Both BSPs (QEMU and RPi5) build cleanly
 
-## Phase 10 Deliverables Checklist (next)
+### Phase 10 — Networking & User Mode ✅
 
-- [ ] Network driver (`NetDevice` HAL trait)
-- [ ] TCP/IP stack (minimal)
-- [ ] User mode (`UserContext` HAL trait, EL0 tasks)
-- [ ] System call interface
+- [x] `NetDevice` HAL trait (`arch::net`) with send/recv/mac_addr for zero-copy packet I/O
+- [x] `UserContext` HAL trait (`arch::user`) for EL0 task creation
+- [x] Network stack: Ethernet frame parse/build, ARP cache (16 entries), IPv4 with checksum, ICMP echo, UDP, minimal TCP (client SYN/ACK/FIN)
+- [x] BSD socket API: socket/bind/connect/sendto/recvfrom/close (8-entry socket table)
+- [x] Loopback NetDevice for QEMU testing (swaps src/dst, converts ICMP request→reply)
+- [x] Network task polling loop with loopback device init (IP 127.0.0.1)
+- [x] Per-task TTBR0 page tables: clone kernel L0/L1/L2, L3 4KB pages for user stacks with guard page
+- [x] ASID-tagged address spaces (8-bit ASID per user task, TLBI on switch)
+- [x] `task_trampoline_user` in assembly: releases sched lock, sets SPSR_EL1=0 (EL0t), erets to user entry
+- [x] `task_create_user` API: kernel stack + user stack + TTBR0 allocation
+- [x] TTBR0 swap in scheduler on context switch between tasks with different page tables
+- [x] Syscall dispatch via SVC #0: X8=syscall number, X0-X1=args, X0=return value
+- [x] Six syscalls: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5)
+- [x] `.user.text` linker section at 0x200000 (2MB-aligned) with EL0-accessible permissions
+- [x] User demo task: prints via sys_write, delays via sys_delay, runs indefinitely at EL0
+- [x] EL0 fault handling: data/prefetch abort from EL0 logs registers and terminates task
+- [x] DISCARD_SP pattern for task_terminate context switch (avoids cascading faults)
+- [x] Shell commands: `ping <ip>`, `netstat` (ARP/socket/config), `ifconfig` (IP/MAC/link)
+- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, no faults, stable operation
+- [x] Both BSPs (QEMU and RPi5) build cleanly
+
+## Phase 11 Deliverables Checklist (next)
+
+- [ ] `os_cfg` module with compile-time validation
+- [ ] Safety-critical mode (pool-only allocation, mandatory budgets/watchdog)
+- [ ] Requirements traceability matrix
+- [ ] MC/DC coverage instrumentation
+- [ ] WCET measurement harness

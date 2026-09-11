@@ -33,6 +33,10 @@ pub fn _print(args: fmt::Arguments) {
     PRINT_LOCK.unlock(saved);
 }
 
+pub fn _print_str(s: &str) {
+    _print(core::format_args!("{}", s));
+}
+
 #[macro_export]
 macro_rules! kprint {
     ($($arg:tt)*) => {

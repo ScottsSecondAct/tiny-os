@@ -204,3 +204,185 @@ pub fn enabled() -> bool {
     unsafe { core::arch::asm!("mrs {}, sctlr_el1", out(reg) sctlr) };
     sctlr & 1 != 0
 }
+
+pub fn kernel_ttbr0() -> u64 {
+    unsafe { &raw const L0 as u64 }
+}
+
+// --- User-mode page table support ---
+
+const PT_PAGE: u64 = 0b11;
+const NG: u64 = 1 << 11;
+const AP_RW_EL0: u64 = 1 << 6;
+pub const PAGE_SIZE_4K: usize = 4096;
+
+const MAX_USER_TASKS: usize = 4;
+const USER_L2_POOL_SIZE: usize = 8;
+const L3_POOL_SIZE: usize = 16;
+const BLOCK_ATTR_MASK: u64 = 0x0070_0000_0000_0FFC;
+
+static mut USER_L0: [PageTable; MAX_USER_TASKS] = [
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+];
+static mut USER_L1: [PageTable; MAX_USER_TASKS] = [
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+];
+static mut USER_L2_POOL: [PageTable; USER_L2_POOL_SIZE] = [
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+];
+static mut USER_L2_NEXT: usize = 0;
+static mut L3_POOL: [PageTable; L3_POOL_SIZE] = [
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
+];
+static mut L3_NEXT: usize = 0;
+static mut USER_SLOT_USED: [bool; MAX_USER_TASKS] = [false; MAX_USER_TASKS];
+static mut NEXT_ASID: u8 = 1;
+
+unsafe fn alloc_user_l2() -> *mut PageTable {
+    let idx = USER_L2_NEXT;
+    assert!(idx < USER_L2_POOL_SIZE, "out of user L2 tables");
+    USER_L2_NEXT += 1;
+    &raw mut USER_L2_POOL[idx]
+}
+
+unsafe fn alloc_l3() -> *mut PageTable {
+    let idx = L3_NEXT;
+    assert!(idx < L3_POOL_SIZE, "out of L3 tables");
+    L3_NEXT += 1;
+    &raw mut L3_POOL[idx]
+}
+
+fn alloc_asid() -> u8 {
+    unsafe {
+        let asid = NEXT_ASID;
+        NEXT_ASID = NEXT_ASID.wrapping_add(1);
+        if NEXT_ASID == 0 { NEXT_ASID = 1; }
+        asid
+    }
+}
+
+/// Create a per-task page table for an EL0 user task.
+///
+/// Clones kernel page tables, marks user_code region as EL0-executable (RO),
+/// maps user_stack region as EL0-writable with a 4KB guard page below.
+///
+/// Returns TTBR0 value with embedded ASID.
+pub unsafe fn create_user_page_table(
+    user_code_base: usize,
+    user_code_size: usize,
+    user_stack_base: usize,
+    user_stack_pages: usize,
+) -> u64 {
+    let slot = USER_SLOT_USED.iter().position(|&used| !used)
+        .expect("no free user page table slots");
+    USER_SLOT_USED[slot] = true;
+    let asid = alloc_asid();
+
+    for e in USER_L0[slot].entries.iter_mut() { *e = 0; }
+    for e in USER_L1[slot].entries.iter_mut() { *e = 0; }
+
+    let user_l1_pa = &raw const USER_L1[slot] as u64;
+    USER_L0[slot].entries[0] = user_l1_pa | PT_TABLE;
+
+    let code_end = user_code_base + user_code_size;
+    let stack_end = user_stack_base + user_stack_pages * PAGE_SIZE_4K;
+
+    for i in 0..ENTRIES_PER_TABLE {
+        if L1.entries[i] == 0 { continue; }
+
+        let kernel_l2_pa = L1.entries[i] & 0x0000_FFFF_FFFF_F000;
+        let gb_base = i << 30;
+        let gb_end = gb_base + (1 << 30);
+
+        let code_overlaps = user_code_size > 0
+            && user_code_base < gb_end && code_end > gb_base;
+        let stack_overlaps = user_stack_pages > 0
+            && user_stack_base < gb_end && stack_end > gb_base;
+
+        if code_overlaps || stack_overlaps {
+            let user_l2 = alloc_user_l2();
+            let kernel_l2 = kernel_l2_pa as *const PageTable;
+            core::ptr::copy_nonoverlapping(
+                (*kernel_l2).entries.as_ptr(),
+                (*user_l2).entries.as_mut_ptr(),
+                ENTRIES_PER_TABLE,
+            );
+
+            if code_overlaps {
+                let mut addr = user_code_base & !(BLOCK_SIZE_2M - 1);
+                while addr < code_end {
+                    let l2_idx = (addr >> 21) & 0x1FF;
+                    let entry = &mut (*user_l2).entries[l2_idx];
+                    if *entry != 0 {
+                        *entry &= !(3u64 << 6);
+                        *entry |= AP_RW_EL0;
+                        *entry &= !UXN;
+                        *entry |= PXN | NG;
+                    }
+                    addr += BLOCK_SIZE_2M;
+                }
+            }
+
+            if stack_overlaps {
+                let block_base = user_stack_base & !(BLOCK_SIZE_2M - 1);
+                let l2_idx = (block_base >> 21) & 0x1FF;
+                let old_entry = (*user_l2).entries[l2_idx];
+                let page_attrs = (old_entry & BLOCK_ATTR_MASK) | PT_PAGE;
+
+                let l3 = alloc_l3();
+                for j in 0..ENTRIES_PER_TABLE {
+                    let page_pa = (block_base + j * PAGE_SIZE_4K) as u64;
+                    (*l3).entries[j] = page_pa | page_attrs;
+                }
+
+                let guard_page = user_stack_base.wrapping_sub(PAGE_SIZE_4K);
+                if guard_page >= block_base {
+                    let guard_idx = (guard_page - block_base) / PAGE_SIZE_4K;
+                    (*l3).entries[guard_idx] = 0;
+                }
+
+                for p in 0..user_stack_pages {
+                    let page_addr = user_stack_base + p * PAGE_SIZE_4K;
+                    let l3_idx = (page_addr - block_base) / PAGE_SIZE_4K;
+                    let pa = page_addr as u64;
+                    (*l3).entries[l3_idx] = pa | PT_PAGE | attr_idx(1) | AF
+                        | SH_INNER | AP_RW_EL0 | PXN | UXN | NG;
+                }
+
+                (*user_l2).entries[l2_idx] = (l3 as u64) | PT_TABLE;
+            }
+
+            USER_L1[slot].entries[i] = (user_l2 as u64) | PT_TABLE;
+        } else {
+            USER_L1[slot].entries[i] = L1.entries[i];
+        }
+    }
+
+    let l0_pa = &raw const USER_L0[slot] as u64;
+    l0_pa | ((asid as u64) << 48)
+}
+
+pub unsafe fn free_user_page_table(ttbr0: u64) {
+    let l0_pa = ttbr0 & 0x0000_FFFF_FFFF_F000;
+    for slot in 0..MAX_USER_TASKS {
+        if &raw const USER_L0[slot] as u64 == l0_pa {
+            USER_SLOT_USED[slot] = false;
+            return;
+        }
+    }
+}
+
+pub unsafe fn switch_ttbr0(ttbr0: u64) {
+    core::arch::asm!(
+        "msr ttbr0_el1, {ttbr}",
+        "isb",
+        "tlbi vmalle1is",
+        "dsb ish",
+        "isb",
+        ttbr = in(reg) ttbr0,
+    );
+}

@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 9 complete** — Filesystem & Shell: FAT32 filesystem with VFS abstraction (16-entry fd table, streaming readdir, LFN support), file read/write/create, RamDisk BlockDevice (256 KB in-memory FAT32 for QEMU), storage layer routing (EMMC2 or RamDisk). Shell commands: `ls`, `cat`, `hexdump`, `touch`, `write`. Built on Phase 8's block cache and BlockDevice, Phase 7's SMP (4 cores), and earlier phases (scheduler, sync, MMU, GIC, timer).
+**Phase 10 complete** — Networking & User Mode: zero-copy network stack (Ethernet, ARP, IPv4, ICMP, UDP, TCP) with loopback device for QEMU, BSD socket API, EL0 user-mode tasks with per-task page tables (TTBR0+ASID), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit). Shell commands: `ping`, `netstat`, `ifconfig`. Built on Phase 9's filesystem, Phase 8's netbuf/block cache, Phase 7's SMP (4 cores), and earlier phases (scheduler, sync, MMU, GIC, timer).
 
 ## Target Hardware
 
@@ -90,7 +90,7 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a full annotated tree.
 tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
-├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), netbuf, IRQ dispatch, memory mgmt, shell
+├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, syscalls, user tasks, netbuf, IRQ dispatch, memory mgmt, shell
 └── docs/       # Specifications and phase breakdown
 ```
 

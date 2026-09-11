@@ -194,6 +194,29 @@ pub fn free(buf: &mut NetBuf) {
     POOL_LOCK.unlock(saved);
 }
 
+pub fn get(idx: u16) -> Option<&'static mut NetBuf> {
+    let saved = POOL_LOCK.lock();
+    let p = pool();
+    if !p.initialized || idx as usize >= p.total as usize {
+        POOL_LOCK.unlock(saved);
+        return None;
+    }
+    let buf = &mut p.bufs[idx as usize];
+    if buf.refcount.load(Ordering::Relaxed) == 0 {
+        POOL_LOCK.unlock(saved);
+        return None;
+    }
+    // SAFETY: Buffer is allocated (refcount > 0), pool has 'static lifetime.
+    let buf_ref = unsafe { &mut *(buf as *mut NetBuf) };
+    POOL_LOCK.unlock(saved);
+    Some(buf_ref)
+}
+
+pub fn buf_index(buf: &NetBuf) -> u16 {
+    let addr = buf.data as usize;
+    ((addr - DMA_POOL_BASE) / BUF_SLOT_SIZE) as u16
+}
+
 pub fn pool_stats() -> (u16, u16) {
     let saved = POOL_LOCK.lock();
     let p = pool();

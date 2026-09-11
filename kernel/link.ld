@@ -42,6 +42,17 @@ SECTIONS
     }
 
     /* ------------------------------------------------------------------ */
+    /* .user.text: EL0 user code, 2 MB aligned for its own MMU block.     */
+    /* ------------------------------------------------------------------ */
+    . = ALIGN(2M);
+    __user_text_start = .;
+    .user.text : {
+        *(.user.text .user.text.*)
+    }
+    . = ALIGN(4096);
+    __user_text_end = .;
+
+    /* ------------------------------------------------------------------ */
     /* W^X boundary: 2 MB aligned so the MMU can use different block       */
     /* descriptors for code (RX) and data (RW+NX).                        */
     /* ------------------------------------------------------------------ */

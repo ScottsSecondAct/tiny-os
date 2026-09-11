@@ -66,3 +66,17 @@ task_trampoline:
     blr     x19                 // entry(arg) -> !
     // entry is divergent (-> !), but if it returns, halt.
     b       .
+
+// User-mode task trampoline. Entered after the first context switch
+// into a user task. x19 = EL0 entry, x20 = arg, x21 = user SP.
+// Releases the scheduler lock, then erets to EL0.
+    .globl task_trampoline_user
+    .type task_trampoline_user, @function
+task_trampoline_user:
+    bl      sched_unlock_new_task
+    msr     elr_el1, x19        // entry point for eret
+    mov     x0, #0              // SPSR = EL0t (all fields 0)
+    msr     spsr_el1, x0
+    msr     sp_el0, x21         // user stack pointer
+    mov     x0, x20             // arg in x0 for the user function
+    eret

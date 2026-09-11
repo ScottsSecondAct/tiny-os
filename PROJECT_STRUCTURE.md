@@ -33,6 +33,8 @@ tiny_os/
 │       ├── smp.rs          # SmpBoot HAL trait: core_id(), num_cores(), start_core()
 │       ├── block.rs        # BlockDevice HAL trait: sector read/write
 │       ├── dma.rs          # DmaEngine HAL trait: channel-based DMA transfers
+│       ├── net.rs          # NetDevice HAL trait: zero-copy packet TX/RX
+│       ├── user.rs         # UserContext HAL trait: EL0 task isolation
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
 │           ├── boot.S      # _start: DTB save, spin-table parking, secondary_boot
@@ -49,12 +51,13 @@ tiny_os/
 │           │               #   init (CMD0/8/ACMD41/2/3/9/7), CSD parsing
 │           ├── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
 │           │               #   mapping with 2MB blocks, W^X policy (RoCode RX,
-│           │               #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config
+│           │               #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config,
+│           │               #   per-task TTBR0 (L3 4KB pages), ASID, switch_ttbr0
 │           ├── context.rs  # Aarch64Context: builds fake stack frame for new
-│           │               #   tasks, wraps context_switch FFI call
+│           │               #   tasks, new_user_context for EL0, wraps context_switch FFI
 │           └── context_switch.S  # AArch64 context switch (save/restore x19-x30,
-│                           #   swap SP) and task_trampoline (sched lock release +
-│                           #   IRQ enable + entry call)
+│                           #   swap SP), task_trampoline (sched lock release +
+│                           #   IRQ enable), task_trampoline_user (eret to EL0)
 │
 ├── bsp/                    # Board Support Package crate — concrete HAL implementations
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
@@ -75,20 +78,35 @@ tiny_os/
 └── kernel/                 # Kernel binary crate
     ├── Cargo.toml          # Depends on arch + bsp; propagates bsp-* feature flags
     ├── link.ld             # Linker script: .text.boot at 0x80000, then .text,
-    │                       #   .rodata, ALIGN(2M) __data_start (W^X boundary),
-    │                       #   .data, .bss (16-byte aligned), .stack
+    │                       #   .rodata, .user.text at 0x200000 (EL0 code),
+    │                       #   ALIGN(2M) __data_start (W^X boundary), .data, .bss, .stack
     └── src/
-        ├── main.rs         # kmain(): init UART/GIC/timer, mm, sched, SMP wakeup;
-        │                   #   secondary_main(): per-core MMU/GIC/timer init
+        ├── main.rs         # kmain(): init UART/GIC/timer, mm, sched, net, user task,
+        │                   #   SMP wakeup; secondary_main(): per-core MMU/GIC/timer init
         ├── panic.rs        # #[panic_handler]: print message + location, WFE halt
         ├── print.rs        # kprint!() / kprintln!() macros via spinlock-serialized Write
         ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), IPI handler,
-        │                   #   sync exception (SVC, ESR decoding), unhandled trap
+        │                   #   sync exception (SVC → syscall dispatch, EL0 fault handling),
+        │                   #   unhandled trap
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
         │                   #   tasks, smp, log, health, sd, sdread, ls, cat, hexdump,
-        │                   #   touch, write, yield, svc, reboot
+        │                   #   touch, write, ping, netstat, ifconfig, yield, svc, reboot
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
+        ├── syscall.rs      # Syscall dispatch: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2),
+        │                   #   SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5)
+        ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs,
+        │                   #   all code in .user.text section (EL0-accessible)
+        ├── net/            # Network stack subsystem
+        │   ├── mod.rs      # Network init, RX dispatch loop, net_task, IP/MAC config
+        │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType demux)
+        │   ├── arp.rs      # ARP cache (16 entries), request/reply handling
+        │   ├── ipv4.rs     # IPv4 parse/build (20-byte header), internet checksum
+        │   ├── icmp.rs     # ICMP echo request/reply, ping RTT statistics
+        │   ├── udp.rs      # UDP parse/build (8-byte header), port table (8 entries)
+        │   ├── tcp.rs      # Minimal TCP: client SYN/ACK/FIN state machine (4 connections)
+        │   ├── socket.rs   # BSD socket API: socket/bind/connect/sendto/recvfrom/close
+        │   └── loopback.rs # Loopback NetDevice for QEMU (swaps src/dst, ICMP req→reply)
         ├── fs/             # Filesystem subsystem
         │   ├── mod.rs      # VFS layer: fd table (16 entries), open/read/write/close,
         │   │               #   readdir API, FsError enum, DirEntry type
@@ -104,7 +122,8 @@ tiny_os/
         ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: global run
         │                   #   queue with spinlock, per-core current task, per-core
         │                   #   idle tasks, IPI-triggered reschedule, budget enforcement,
-        │                   #   criticality, stack watermarks, CPU utilization
+        │                   #   criticality, stack watermarks, CPU utilization, TTBR0 swap,
+        │                   #   task_create_user, task_terminate with DISCARD_SP
         ├── klog.rs         # Ring-buffer log subsystem: 5 levels (ERROR..TRACE),
         │                   #   timestamps, module tags, 64-entry buffer, BufWriter formatter
         ├── watchdog.rs     # Software watchdog: tick-based counter with configurable timeout,

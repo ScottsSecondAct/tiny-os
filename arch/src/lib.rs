@@ -8,4 +8,6 @@ pub mod irq;
 pub mod mm;
 pub mod smp;
 pub mod timer;
+pub mod net;
 pub mod uart;
+pub mod user;
