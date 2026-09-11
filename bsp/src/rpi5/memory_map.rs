@@ -25,6 +25,9 @@ pub const GIC_CPU_BASE: usize = 0xFF84_2000;
 pub const RAM_BASE: usize = 0;
 pub const RAM_SIZE_DEFAULT: usize = 0x1_0000_0000; // 4 GB
 
+/// BCM2712 EMMC2 (Arasan SDHCI) base address.
+pub const EMMC2_BASE: usize = 0xFE34_0000;
+
 /// BCM2712 peripheral MMIO region (covers GPIO, GIC, etc.).
 pub const PERIPH_BASE: usize = 0xFE00_0000;
 pub const PERIPH_SIZE: usize = 0x0200_0000; // 32 MB

@@ -13,7 +13,7 @@ static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
 
 type IrqHandler = fn();
 
-const MAX_IRQS: usize = 64;
+const MAX_IRQS: usize = 256;
 
 struct IrqTable(UnsafeCell<[Option<IrqHandler>; MAX_IRQS]>);
 

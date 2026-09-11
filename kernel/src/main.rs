@@ -9,13 +9,15 @@ mod exceptions;
 mod health;
 pub mod klog;
 mod mm;
+pub mod netbuf;
 pub mod sched;
 mod shell;
 pub mod spinlock;
+pub mod storage;
 pub mod sync;
 pub mod watchdog;
 
-use arch::aarch64::{exceptions as exc, gic, mmu, timer, smp};
+use arch::aarch64::{emmc2, exceptions as exc, gic, mmu, timer, smp};
 use arch::uart::UartDriver;
 use bsp::PlatformUart;
 use sched::Criticality;
@@ -127,7 +129,7 @@ pub extern "C" fn kmain() -> ! {
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os Phase 7 boot (SMP)");
+    kprintln!("tiny_os Phase 8 boot (Storage & DMA)");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
@@ -150,6 +152,32 @@ pub extern "C" fn kmain() -> ! {
     }
     let ticks = exc::tick_count() - t0;
     kprintln!("timer: {} Hz, {} ticks in 250ms (expect ~250)", freq, ticks);
+
+    // Initialize NetBuf DMA buffer pool.
+    netbuf::init();
+    let (nb_total, nb_free) = netbuf::pool_stats();
+    kprintln!("netbuf: {} buffers ({} free)", nb_total, nb_free);
+
+    // Initialize SD card via EMMC2 SDHCI controller.
+    match emmc2::init(bsp::EMMC2_BASE) {
+        Ok(()) => {
+            if let Some((sdhc, blocks)) = emmc2::card_info() {
+                let size_mb = blocks / 2048;
+                kprintln!(
+                    "sd: {} card, {} blocks ({} MB)",
+                    if sdhc { "SDHC" } else { "SDSC" },
+                    blocks,
+                    size_mb
+                );
+
+                // Read and parse MBR.
+                storage::print_mbr_info();
+            }
+        }
+        Err(_) => {
+            kprintln!("sd: no card detected (EMMC2 at {:#x})", bsp::EMMC2_BASE);
+        }
+    }
 
     // Initialize klog subsystem.
     kprintln!("klog: {}-entry ring buffer, level={}", 64, klog::get_level().as_str());

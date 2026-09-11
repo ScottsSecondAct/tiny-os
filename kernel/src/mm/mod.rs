@@ -10,6 +10,9 @@ use crate::kprintln;
 const PAGE_SIZE: usize = 4096;
 const HEAP_PAGES: usize = 64; // 256 KB initial heap
 
+pub const DMA_POOL_BASE: usize = 0x0100_0000; // 16 MB mark, 2MB-aligned
+pub const DMA_POOL_SIZE: usize = 0x0020_0000; // 2 MB
+
 extern "C" {
     static __stack_top: u8;
     static __data_start: u8;
@@ -46,6 +49,10 @@ pub fn init() {
     unsafe { mmu::init(&regions) };
     kprintln!("MMU: enabled, identity-mapped, W^X, caches on");
     kprintln!("W^X: code RX {:#x}-{:#x}, data RW+NX {:#x}+", 0x80000usize, data_start, data_start);
+
+    // Reserve DMA pool region from PMM (NC-mapped by bsp_mem_regions).
+    pmm().mark_range_used(DMA_POOL_BASE, DMA_POOL_SIZE);
+    kprintln!("dma pool: {:#x} - {:#x} ({} KB, non-cacheable)", DMA_POOL_BASE, DMA_POOL_BASE + DMA_POOL_SIZE, DMA_POOL_SIZE >> 10);
 
     // Seed the heap from PMM pages.
     let mut heap_bytes = 0usize;
@@ -94,7 +101,7 @@ fn bsp_mem_regions(ram_base: usize, ram_size: usize) -> [MemRegion; 6] {
             MemRegion { base: ram_base, size: code_size, kind: MemKind::RoCode },
             MemRegion { base: data_start, size: data_size, kind: MemKind::Ram },
             MemRegion { base: mm::PERIPH_BASE, size: mm::PERIPH_SIZE, kind: MemKind::Device },
-            MemRegion { base: 0, size: 0, kind: MemKind::Ram },
+            MemRegion { base: DMA_POOL_BASE, size: DMA_POOL_SIZE, kind: MemKind::NonCacheable },
             MemRegion { base: 0, size: 0, kind: MemKind::Ram },
             MemRegion { base: 0, size: 0, kind: MemKind::Ram },
         ]
@@ -107,7 +114,7 @@ fn bsp_mem_regions(ram_base: usize, ram_size: usize) -> [MemRegion; 6] {
             MemRegion { base: data_start, size: data_size, kind: MemKind::Ram },
             MemRegion { base: mm::PERIPH_BASE, size: mm::PERIPH_SIZE, kind: MemKind::Device },
             MemRegion { base: mm::RP1_PERIPH_BASE, size: mm::RP1_PERIPH_SIZE, kind: MemKind::Device },
-            MemRegion { base: 0, size: 0, kind: MemKind::Ram },
+            MemRegion { base: DMA_POOL_BASE, size: DMA_POOL_SIZE, kind: MemKind::NonCacheable },
             MemRegion { base: 0, size: 0, kind: MemKind::Ram },
         ]
     }

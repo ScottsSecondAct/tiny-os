@@ -1,5 +1,5 @@
-use crate::{kprint, kprintln, klog, mm, sched, watchdog};
-use arch::aarch64::exceptions;
+use crate::{kprint, kprintln, klog, mm, netbuf, sched, storage, watchdog};
+use arch::aarch64::{emmc2, exceptions};
 use arch::aarch64::mmu;
 use arch::aarch64::smp;
 use arch::aarch64::timer;
@@ -85,7 +85,7 @@ fn dispatch(cmd: &str) {
     match base {
         "help" => {
             kprintln!("commands: help, uptime, ticks, info, mem, tasks, log, health,");
-            kprintln!("          smp, yield, svc, reboot");
+            kprintln!("          smp, sd, sdread <lba>, yield, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
@@ -110,6 +110,8 @@ fn dispatch(cmd: &str) {
             kprintln!("pages:  {} total, {} used, {} free ({} KB free)", total, used, free, free * 4);
             let (htotal, hused, hfree) = mm::heap_stats();
             kprintln!("heap:   {} total, {} used, {} free", htotal, hused, hfree);
+            let (nb_total, nb_free) = netbuf::pool_stats();
+            kprintln!("netbuf: {} total, {} free", nb_total, nb_free);
             kprintln!("MMU:    {}", if mmu::enabled() { "on" } else { "off" });
         }
         "tasks" => {
@@ -133,6 +135,34 @@ fn dispatch(cmd: &str) {
             let cores = sched::active_cores();
             kprintln!("SMP: {} cores active", cores);
             kprintln!("this core: {}", smp::core_id());
+        }
+        "sd" => {
+            if !emmc2::is_initialized() {
+                kprintln!("SD card not initialized");
+            } else if let Some((sdhc, blocks)) = emmc2::card_info() {
+                kprintln!("type:       {}", if sdhc { "SDHC" } else { "SDSC" });
+                kprintln!("blocks:     {}", blocks);
+                kprintln!("capacity:   {} MB", blocks / 2048);
+                kprintln!("block size: 512");
+                storage::print_mbr_info();
+            }
+        }
+        "sdread" => {
+            if !emmc2::is_initialized() {
+                kprintln!("SD card not initialized");
+            } else if arg.is_empty() {
+                kprintln!("usage: sdread <lba>");
+            } else {
+                let lba = parse_u64(arg);
+                let mut buf = [0u8; 512];
+                match emmc2::read_block(lba, &mut buf) {
+                    Ok(()) => {
+                        kprintln!("sector {} (LBA {:#x}):", lba, lba);
+                        hexdump(&buf);
+                    }
+                    Err(e) => kprintln!("read error: {:?}", e),
+                }
+            }
         }
         "log" => {
             if arg.starts_with("level ") {
@@ -192,5 +222,36 @@ fn dispatch(cmd: &str) {
             kprintln!("unknown command: {}", trimmed);
             kprintln!("type 'help' for available commands");
         }
+    }
+}
+
+fn parse_u64(s: &str) -> u64 {
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).unwrap_or(0)
+    } else {
+        s.parse::<u64>().unwrap_or(0)
+    }
+}
+
+fn hexdump(data: &[u8]) {
+    for row in 0..(data.len() / 16) {
+        let off = row * 16;
+        kprint!("{:04x}: ", off);
+        for i in 0..16 {
+            kprint!("{:02x} ", data[off + i]);
+            if i == 7 {
+                kprint!(" ");
+            }
+        }
+        kprint!(" |");
+        for i in 0..16 {
+            let b = data[off + i];
+            if (0x20..=0x7E).contains(&b) {
+                kprint!("{}", b as char);
+            } else {
+                kprint!(".");
+            }
+        }
+        kprintln!("|");
     }
 }

@@ -77,6 +77,33 @@ impl PageAllocator for BitmapAllocator {
         None
     }
 
+    fn alloc_pages(&mut self, count: usize) -> Option<usize> {
+        if count == 0 {
+            return None;
+        }
+        if count == 1 {
+            return self.alloc_page();
+        }
+        let mut run_start = 0usize;
+        let mut run_len = 0usize;
+        for page in 0..self.total {
+            if self.is_used(page) {
+                run_start = page + 1;
+                run_len = 0;
+            } else {
+                run_len += 1;
+                if run_len == count {
+                    for p in run_start..run_start + count {
+                        self.set_used(p);
+                    }
+                    self.used += count;
+                    return Some(run_start * PAGE_SIZE);
+                }
+            }
+        }
+        None
+    }
+
     fn free_page(&mut self, pa: usize) {
         let page = pa / PAGE_SIZE;
         if page < self.total && self.is_used(page) {

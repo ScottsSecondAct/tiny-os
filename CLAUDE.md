@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 7: Symmetric Multiprocessing (SMP)** — complete. All 4 cores online via spin-table wakeup in boot.S, ticket spinlock for SMP mutual exclusion, global run queue with spinlock protection, per-core current task tracking, per-core idle tasks, IPI via GIC SGI for cross-core reschedule, serialized UART output. Tasks migrate across all 4 cores. Built on Phase 6's logging/watchdog/health and Phase 5's sync primitives. Next up: Phase 8 (Storage & DMA).
+**Phase 8: Storage & DMA** — complete. SDHCI/EMMC2 SD card driver with PIO data transfer, DMA engine HAL trait, zero-copy NetBuf buffer pool (1024 buffers in 2MB non-cacheable region), BlockDevice HAL trait, MBR partition table parser, LRU write-back block cache (32 lines). Shell commands: `sd` (card info + partitions), `sdread <lba>` (hex dump sector). Built on Phase 7's SMP, Phase 3's MMU (NonCacheable memory kind), and Phase 3's contiguous page allocator. Next up: Phase 9 (Filesystem & Shell).
 
 ## Target Hardware
 
@@ -77,7 +77,12 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, yield, svc, reboot)
+│   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
+│   │   ├── storage/        # Storage subsystem
+│   │   │   ├── mod.rs      # Emmc2Wrapper, print_mbr_info() helper
+│   │   │   ├── mbr.rs      # MBR partition table parser
+│   │   │   └── cache.rs    # LRU write-back block cache (32 lines, 512B each)
 │   │   ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: per-core current, spinlock, IPI
 │   │   ├── spinlock.rs     # Ticket spinlock with IRQ save/restore for SMP mutual exclusion
 │   │   ├── klog.rs         # Ring-buffer log subsystem: 5 levels, timestamps, module tags, 64-entry buffer
@@ -91,7 +96,7 @@ tiny_os/
 │   │   │   ├── events.rs   # 32-bit event flags with Any/All wait modes
 │   │   │   └── msgqueue.rs # Const-generic message queue with send/recv blocking
 │   │   └── mm/             # Memory management subsystem
-│   │       ├── mod.rs      # MM init: RAM discovery, PMM, MMU enable, heap seeding
+│   │       ├── mod.rs      # MM init: RAM discovery, PMM, DMA pool, MMU enable, heap seeding
 │   │       ├── dtb.rs      # Minimal FDT parser for /memory node
 │   │       ├── pmm.rs      # Bitmap page frame allocator (4KB pages, up to 4GB)
 │   │       └── heap.rs     # Linked-list heap allocator (kmalloc/kfree)
@@ -106,6 +111,8 @@ tiny_os/
 │       ├── mm.rs           # PageAllocator trait
 │       ├── context.rs      # Context HAL trait (new_context, switch)
 │       ├── smp.rs          # SmpBoot HAL trait (core_id, num_cores, start_core)
+│       ├── block.rs        # BlockDevice HAL trait (sector read/write)
+│       ├── dma.rs          # DmaEngine HAL trait (channel-based DMA transfers)
 │       └── aarch64/
 │           ├── mod.rs
 │           ├── boot.S      # _start, spin-table secondary parking, secondary_boot EL drop
@@ -115,6 +122,7 @@ tiny_os/
 │           ├── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick, secondary init)
 │           ├── mmu.rs      # MMU: identity mapping, 2MB blocks, W^X, secondary core init
 │           ├── smp.rs      # AArch64 SMP: spin-table wakeup, core_id, start_core
+│           ├── emmc2.rs    # SDHCI/EMMC2 SD card driver: PIO mode, card init, read/write
 │           ├── context.rs  # Aarch64Context: new_context (fake frame), switch wrapper
 │           └── context_switch.S  # Context switch (x19-x30) + task trampoline (sched lock release)
 └── bsp/                    # Board Support Packages
@@ -256,11 +264,26 @@ tiny_os/
 - [x] Shell `smp` command and `info` command showing core count and current core
 - [x] Verified on QEMU: all 4 cores online, tasks migrating across cores 0-3, mutex/semaphore correct across cores
 
-## Phase 8 Deliverables Checklist (next)
+### Phase 8 — Storage & DMA ✅
 
-- [ ] DMA engine driver (`DmaEngine` HAL trait)
-- [ ] Zero-copy buffer pool (`NetBuf`)
-- [ ] EMMC2 / SDIO driver
-- [ ] `BlockDevice` HAL trait
-- [ ] Partition table parsing (MBR)
-- [ ] Block cache (LRU, write-back)
+- [x] `DmaEngine` HAL trait (`arch::dma`) with channel-based configure/start/complete/abort API
+- [x] `BlockDevice` HAL trait (`arch::block`) with read_block/write_block/block_count/block_size
+- [x] Zero-copy buffer pool (`kernel::netbuf`): 1024 × 1536B buffers in 2MB non-cacheable region at 0x0100_0000
+- [x] `MemKind::NonCacheable` MMU support using MAIR index 2 (Normal NC)
+- [x] Contiguous page allocator (`alloc_pages`) for DMA pool allocation
+- [x] SDHCI/EMMC2 SD card driver (`arch::aarch64::emmc2`): full card init (CMD0/8/ACMD41/2/3/9/7), PIO read/write (CMD17/CMD24), CSD v1/v2 parsing
+- [x] MBR partition table parser (`kernel::storage::mbr`): 4 entries, type identification, signature validation
+- [x] LRU write-back block cache (`kernel::storage::cache`): 32 lines, dirty tracking, eviction with write-back
+- [x] IRQ dispatch table enlarged from 64 to 256 entries for EMMC2 INTID support
+- [x] Shell commands: `sd` (card info, partitions), `sdread <lba>` (sector hex dump), `mem` (netbuf stats)
+- [x] Verified on QEMU: boots with graceful SD card detection (QEMU uses SDHOST, not SDHCI)
+- [x] Both BSPs (QEMU and RPi5) build cleanly
+
+## Phase 8 Deliverables Checklist (complete)
+
+- [x] DMA engine driver (`DmaEngine` HAL trait)
+- [x] Zero-copy buffer pool (`NetBuf`)
+- [x] EMMC2 / SDIO driver
+- [x] `BlockDevice` HAL trait
+- [x] Partition table parsing (MBR)
+- [x] Block cache (LRU, write-back)

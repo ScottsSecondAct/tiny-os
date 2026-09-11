@@ -31,6 +31,8 @@ tiny_os/
 │       ├── mm.rs           # PageAllocator trait definition
 │       ├── context.rs      # Context HAL trait: new_context(), switch()
 │       ├── smp.rs          # SmpBoot HAL trait: core_id(), num_cores(), start_core()
+│       ├── block.rs        # BlockDevice HAL trait: sector read/write
+│       ├── dma.rs          # DmaEngine HAL trait: channel-based DMA transfers
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
 │           ├── boot.S      # _start: DTB save, spin-table parking, secondary_boot
@@ -43,6 +45,8 @@ tiny_os/
 │           ├── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
 │           │               #   CVAL-based acknowledge, secondary core init)
 │           ├── smp.rs      # AArch64 SMP: spin-table wakeup via SEV, core_id()
+│           ├── emmc2.rs    # SDHCI/EMMC2 SD card driver: PIO mode, card
+│           │               #   init (CMD0/8/ACMD41/2/3/9/7), CSD parsing
 │           ├── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
 │           │               #   mapping with 2MB blocks, W^X policy (RoCode RX,
 │           │               #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config
@@ -60,11 +64,11 @@ tiny_os/
 │       ├── rpi5/
 │       │   ├── mod.rs          # BSP root for Raspberry Pi 5
 │       │   ├── memory_map.rs   # RP1_UART0_BASE = 0x1F_0006_C000 (36-bit PCIe window),
-│       │   │                   #   GIC bases, RAM default (4GB), peripheral + RP1 MMIO regions
+│       │   │                   #   GIC bases, EMMC2_BASE, RAM default (4GB), peripheral + RP1 MMIO regions
 │       │   └── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
 │       └── qemu_virt/
 │           ├── mod.rs          # BSP root for QEMU raspi4b
-│           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases, RAM default (1GB),
+│           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases, EMMC2_BASE, RAM default (1GB),
 │           │                   #   peripheral MMIO region
 │           └── uart.rs         # BCM2711 PL011 UART driver
 │
@@ -81,7 +85,13 @@ tiny_os/
         ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), IPI handler,
         │                   #   sync exception (SVC, ESR decoding), unhandled trap
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
-        │                   #   tasks, smp, log, health, yield, svc, reboot
+        │                   #   tasks, smp, log, health, yield, svc, sd, sdread, reboot
+        ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
+        │                   #   AtomicU8 refcount, spinlock-protected free list
+        ├── storage/        # Storage subsystem
+        │   ├── mod.rs      # Emmc2Wrapper BlockDevice impl, MBR info printer
+        │   ├── mbr.rs      # MBR partition table parser (4 entries, 0xAA55 sig)
+        │   └── cache.rs    # LRU write-back block cache (32 lines × 512B)
         ├── spinlock.rs     # Ticket spinlock with IRQ save/restore for SMP
         ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: global run
         │                   #   queue with spinlock, per-core current task, per-core
@@ -102,7 +112,7 @@ tiny_os/
         │   └── msgqueue.rs # Const-generic MsgQueue<MSG_SIZE, CAPACITY>: circular buffer,
         │                   #   separate send/recv wait queues, timeout + try variants
         └── mm/             # Memory management subsystem
-            ├── mod.rs      # MM init: DTB RAM discovery → PMM → MMU enable → heap seed
+            ├── mod.rs      # MM init: DTB RAM discovery → PMM → MMU enable → heap seed → DMA pool
             ├── dtb.rs      # Minimal FDT parser: extracts /memory node reg property
             ├── pmm.rs      # Bitmap page frame allocator: 1 bit per 4KB page, up to 4GB
             └── heap.rs     # Linked-list heap allocator: kmalloc/kfree, global stats

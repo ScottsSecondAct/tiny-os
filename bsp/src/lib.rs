@@ -12,7 +12,7 @@ pub use rpi5::Rp1Uart as PlatformUart;
 pub use qemu_virt::Pl011Uart as PlatformUart;
 
 #[cfg(feature = "bsp-rpi5")]
-pub use rpi5::memory_map::{GIC_CPU_BASE, GIC_DIST_BASE};
+pub use rpi5::memory_map::{EMMC2_BASE, GIC_CPU_BASE, GIC_DIST_BASE};
 
 #[cfg(feature = "bsp-qemu")]
-pub use qemu_virt::memory_map::{GIC_CPU_BASE, GIC_DIST_BASE};
+pub use qemu_virt::memory_map::{EMMC2_BASE, GIC_CPU_BASE, GIC_DIST_BASE};

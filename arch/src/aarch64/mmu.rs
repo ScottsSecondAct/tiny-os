@@ -27,6 +27,7 @@ const fn attr_idx(idx: u64) -> u64 {
 // W^X: code is read-only + executable; data is read-write + no-execute.
 const NORMAL_CODE: u64 = PT_BLOCK | attr_idx(1) | AF | SH_INNER | AP_RO_EL1 | UXN;
 const NORMAL_RAM: u64 = PT_BLOCK | attr_idx(1) | AF | SH_INNER | AP_RW_EL1 | PXN | UXN;
+const NORMAL_NC: u64 = PT_BLOCK | attr_idx(2) | AF | SH_INNER | AP_RW_EL1 | PXN | UXN;
 const DEVICE_MEM: u64 = PT_BLOCK | attr_idx(0) | AF | AP_RW_EL1 | PXN | UXN;
 
 // MAIR_EL1: index 0 = Device-nGnRnE, index 1 = Normal WB RA/WA, index 2 = Normal NC.
@@ -100,6 +101,7 @@ pub struct MemRegion {
 pub enum MemKind {
     RoCode,
     Ram,
+    NonCacheable,
     Device,
 }
 
@@ -149,6 +151,7 @@ unsafe fn map_region(region: &MemRegion) {
     let attrs = match region.kind {
         MemKind::RoCode => NORMAL_CODE,
         MemKind::Ram => NORMAL_RAM,
+        MemKind::NonCacheable => NORMAL_NC,
         MemKind::Device => DEVICE_MEM,
     };
 
