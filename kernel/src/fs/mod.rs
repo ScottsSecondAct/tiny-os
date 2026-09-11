@@ -2,9 +2,10 @@ pub mod fat32;
 
 use fat32::{DirCursor, DirEntry, Fat32State, FsError, OpenFile};
 use core::cell::UnsafeCell;
+use crate::os_cfg;
 use crate::storage;
 
-const MAX_OPEN: usize = 16;
+const MAX_OPEN: usize = os_cfg::MAX_OPEN_FILES;
 
 struct FsState {
     fat32: Fat32State,

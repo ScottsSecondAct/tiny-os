@@ -15,9 +15,11 @@ const DT_RELA: i64 = 7;
 const DT_RELASZ: i64 = 8;
 const R_AARCH64_RELATIVE: u32 = 1027;
 
-const USER_STACK_PAGES: usize = 4;
-const KERNEL_STACK_SIZE: usize = 8192;
-const MAX_SEGMENTS: usize = 8;
+use crate::os_cfg;
+
+const USER_STACK_PAGES: usize = os_cfg::LOADER_USER_STACK_PAGES;
+const KERNEL_STACK_SIZE: usize = os_cfg::LOADER_KERN_STACK_SIZE;
+const MAX_SEGMENTS: usize = os_cfg::LOADER_MAX_SEGMENTS;
 
 #[repr(C)]
 #[derive(Clone, Copy)]

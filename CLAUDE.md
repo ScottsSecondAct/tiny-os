@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch with subsystem multiplexing — basic syscalls (yield, delay, write, task_id, uptime, exit, temperature) plus subsystem calls (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C, SYS_GPIO) using X0=operation, X1-X3=args. RP1 southbridge drivers for SPI (DW_apb_ssi), I2C (DW_apb_i2c), and GPIO (28-pin, pad control, RIO registers). User-space apps in `examples/`: temperature monitor (SoC temp stats), industrial sensor gateway (SPI/I2C/GPIO data collection, SD card logging, UDP telemetry). Shell commands: `ping`, `netstat`, `ifconfig`, `temp`. Next up: Phase 11 (Safety Certification).
+**Phase 11: Safety Certification** — complete. Centralized `os_cfg` module with 14 compile-time assertions. `safety-critical` Cargo feature flag: disables heap (pool-only allocation), enforces budget monitoring. Fixed-size memory pool allocator (O(1) alloc/free, up to 16 pools). 14 hook functions with default behaviors (idle, stack_overflow, data_abort, hard_fault, assert, task_create, task_switch, budget_overrun, deadline_miss, task_terminated, watchdog_expired, health_check_failed, shutdown, safety_critical_lost). Enhanced health monitor with 7 checks (stacks, CPU, watchdog, ready queue integrity, mutex ownership, tick monotonicity, pool accounting). Budget enforcement with task suspension on overrun and period-based replenishment. Structured shutdown with diagnostic register save. Criticality mode switch (suspend/restore lower-priority tasks). WCET measurement harness via PMU cycle counter. RMA + RTA schedulability analysis. Fault injection test suite (8 tests). Requirements traceability matrix (56 requirements). Shell commands: `faulttest`, `wcet`. Next up: Phase 12 (Extended Peripheral Support).
 
 ## Target Hardware
 
@@ -102,6 +102,13 @@ tiny_os/
 │   │   ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs (.user.text section)
 │   │   ├── loader.rs       # [dynamic-load] ELF64 loader: parse headers, load PT_LOAD segments,
 │   │   │                   #   apply R_AARCH64_RELATIVE relocations, create per-task page tables
+│   │   ├── os_cfg.rs       # Centralized OS_CFG_* constants with 14 compile-time assertions
+│   │   ├── hooks.rs        # 14 os_hook_* functions with default behaviors (spec 11.2)
+│   │   ├── shutdown.rs     # Structured shutdown: diag save, fault log, hook, reboot/halt
+│   │   ├── criticality.rs  # Criticality mode switch: suspend/restore lower-priority tasks
+│   │   ├── wcet.rs         # WCET measurement harness: PMU cycle counter, min/max/avg tracking
+│   │   ├── sched_analysis.rs # RMA utilization check + Response-Time Analysis with PIP blocking
+│   │   ├── fault_inject.rs # Fault injection test suite: 8 tests for safety certification
 │   │   ├── net/            # Network stack subsystem
 │   │   │   ├── mod.rs      # Network init, RX dispatch, net_task poll loop
 │   │   │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType)
@@ -136,7 +143,8 @@ tiny_os/
 │   │       ├── mod.rs      # MM init: RAM discovery, PMM, DMA pool, MMU enable, heap seeding
 │   │       ├── dtb.rs      # Minimal FDT parser for /memory node
 │   │       ├── pmm.rs      # Bitmap page frame allocator (4KB pages, up to 4GB)
-│   │       └── heap.rs     # Linked-list heap allocator (kmalloc/kfree)
+│   │       ├── heap.rs     # Linked-list heap allocator (kmalloc/kfree, disabled in safety-critical)
+│   │       └── pool.rs     # Fixed-size memory pool allocator (O(1) alloc/free, up to 16 pools)
 │   └── link.ld             # Linker script (.text.boot, .text, .rodata, .user.text at 0x200000, .data, .bss, .stack)
 ├── arch/                   # Architecture-specific crate
 │   ├── Cargo.toml
@@ -415,10 +423,19 @@ make test                     # runs test-host then test-qemu
 - [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, sensor gateway (graceful hw fallback), no faults, stable operation
 - [x] Both BSPs (QEMU and RPi5) build cleanly, all 4 BSP×feature configurations pass
 
-## Phase 11 Deliverables Checklist (next)
+### Phase 11 — Safety Certification ✅
 
-- [ ] `os_cfg` module with compile-time validation
-- [ ] Safety-critical mode (pool-only allocation, mandatory budgets/watchdog)
-- [ ] Requirements traceability matrix
-- [ ] MC/DC coverage instrumentation
-- [ ] WCET measurement harness
+- [x] `os_cfg` module with compile-time validation (14 const assertions for all tunable constants)
+- [x] `safety-critical` Cargo feature flag: disables heap (pool-only allocation), enforces budget monitoring
+- [x] Fixed-size memory pool allocator (`OsPool`): O(1) alloc/free via spinlock-protected free-list, up to 16 pools, global registry for diagnostics
+- [x] 14 hook functions with default behaviors: idle (WFI), stack_overflow, data_abort, hard_fault, assert, task_create, task_switch, budget_overrun, deadline_miss, task_terminated, watchdog_expired, health_check_failed, shutdown, safety_critical_lost
+- [x] Enhanced health monitor: 7 checks (stacks with hook call, CPU utilization, watchdog, ready queue integrity, mutex ownership, tick monotonicity, pool accounting)
+- [x] Budget enforcement: task suspension on overrun when BUDGET_EN, period-based replenishment, os_hook_budget_overrun callback
+- [x] Structured shutdown: interrupt mask (DAIF), diagnostic register save (DiagRegion: ESR, ELR, FAR, SPSR, regs, tick, core_id, task_id), fault logging, hook call, reboot-or-halt based on REBOOT_ON_FAULT
+- [x] Criticality mode switch: os_criticality_switch suspends tasks below min_level, os_criticality_restore resumes all
+- [x] WCET measurement harness: PMU cycle counter (PMCCNTR_EL0), WcetRecord with min/max/avg/count, 32 slots, WCET bound constants
+- [x] Schedulability analysis: RMA utilization check with precomputed Liu & Layland bounds, iterative Response-Time Analysis with PIP blocking
+- [x] Fault injection test suite: 8 tests (pool exhaust/double-free/bad-ptr, budget overrun, health hooks, criticality switch, diag region, hook invocation)
+- [x] Requirements traceability matrix: 56 requirements in docs/traceability.csv (REQ-CFG, REQ-POOL, REQ-SAFE, REQ-HOOK, REQ-HEALTH, REQ-SHUTDOWN, REQ-CRIT, REQ-WCET, REQ-BUDGET, REQ-SCHED)
+- [x] Shell commands: `faulttest` (run fault injection suite), `wcet` (dump WCET measurements)
+- [x] All 6 BSP×feature configurations build cleanly, all 28 host tests pass

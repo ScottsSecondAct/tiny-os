@@ -132,11 +132,13 @@ pub unsafe fn add_region(base: usize, size: usize) {
     (*HEAP.0.get()).add_region(base, size);
 }
 
+#[cfg(not(feature = "safety-critical"))]
 pub fn kmalloc(size: usize, align: usize) -> Option<*mut u8> {
     // SAFETY: Single-core, no ISR access to heap.
     unsafe { (*HEAP.0.get()).alloc(size, align) }
 }
 
+#[cfg(not(feature = "safety-critical"))]
 pub fn kfree(ptr: *mut u8) {
     unsafe { (*HEAP.0.get()).free(ptr) }
 }

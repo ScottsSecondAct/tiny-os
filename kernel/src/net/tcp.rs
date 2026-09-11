@@ -1,10 +1,11 @@
 use crate::netbuf;
+use crate::os_cfg;
 use super::{ethernet, ipv4, Ipv4Addr};
 use arch::net::NetError;
 use core::cell::UnsafeCell;
 
 const TCP_HEADER_LEN: usize = 20;
-const MAX_TCP_CONNS: usize = 4;
+const MAX_TCP_CONNS: usize = os_cfg::MAX_TCP_CONNS;
 const MAX_RX_QUEUE: usize = 4;
 
 const TCP_FIN: u8 = 0x01;

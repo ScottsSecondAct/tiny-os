@@ -1,11 +1,12 @@
 use core::cell::UnsafeCell;
 use core::fmt::{self, Write};
+use crate::os_cfg;
 use crate::sched::CriticalSection;
 use arch::aarch64::exceptions;
 
-const LOG_MSG_SIZE: usize = 80;
-const LOG_MODULE_SIZE: usize = 8;
-const LOG_BUFFER_SIZE: usize = 64;
+const LOG_MSG_SIZE: usize = os_cfg::LOG_MSG_SIZE;
+const LOG_MODULE_SIZE: usize = os_cfg::LOG_MODULE_SIZE;
+const LOG_BUFFER_SIZE: usize = os_cfg::LOG_BUFFER_SIZE;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 #[repr(u8)]
@@ -171,6 +172,10 @@ pub fn dump(count: usize) {
         let msg_str = core::str::from_utf8(&e.msg[..e.msg_len as usize]).unwrap_or("?");
         crate::kprintln!("[{}.{:03}] {} [{}] {}", secs, frac, e.level.as_str(), mod_str, msg_str);
     }
+}
+
+pub fn flush() {
+    dump(LOG_BUFFER_SIZE);
 }
 
 pub fn entry_count() -> usize {

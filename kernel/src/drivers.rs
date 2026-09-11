@@ -1,4 +1,5 @@
 use core::cell::UnsafeCell;
+use crate::os_cfg;
 use crate::sched::CriticalSection;
 
 pub trait Driver: Sync {
@@ -7,7 +8,7 @@ pub trait Driver: Sync {
     fn status(&self) -> &'static str;
 }
 
-const MAX_DRIVERS: usize = 16;
+const MAX_DRIVERS: usize = os_cfg::MAX_DRIVERS;
 
 struct Registry {
     drivers: [Option<&'static dyn Driver>; MAX_DRIVERS],

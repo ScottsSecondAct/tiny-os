@@ -3,9 +3,10 @@ pub mod semaphore;
 pub mod events;
 pub mod msgqueue;
 
+use crate::os_cfg;
 use crate::sched::{self, TaskState};
 
-const MAX_WAITERS: usize = 32;
+const MAX_WAITERS: usize = os_cfg::MAX_WAITERS;
 const NONE: u8 = 0xFF;
 
 pub struct WaitQueue {

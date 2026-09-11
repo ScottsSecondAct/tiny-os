@@ -3,14 +3,20 @@
 
 mod panic;
 pub mod print;
+pub mod os_cfg;
 
+pub mod criticality;
 mod drivers;
 mod exceptions;
+pub mod fault_inject;
 mod health;
+pub mod hooks;
+pub mod shutdown;
 pub mod klog;
 mod mm;
 pub mod netbuf;
 pub mod sched;
+pub mod sched_analysis;
 #[path = "../../examples/temp_monitor/main.rs"]
 mod temp_monitor;
 #[path = "../../examples/sensor_gateway/main.rs"]
@@ -25,6 +31,7 @@ pub mod storage;
 pub mod sync;
 mod user_tasks;
 pub mod watchdog;
+pub mod wcet;
 #[cfg(feature = "dynamic-load")]
 pub mod loader;
 
@@ -70,8 +77,8 @@ static SHARED_COUNTER: SyncU64 = SyncU64(core::cell::UnsafeCell::new(0));
 
 static SEM_SIGNAL: Semaphore = Semaphore::binary(0);
 
-const WATCHDOG_TIMEOUT_MS: u32 = 5000;
-const WATCHDOG_KICK_INTERVAL_MS: u32 = 2000;
+const WATCHDOG_TIMEOUT_MS: u32 = os_cfg::WDT_TIMEOUT_MS;
+const WATCHDOG_KICK_INTERVAL_MS: u32 = os_cfg::WDT_KICK_INTERVAL_MS;
 
 /// Tracks how many secondary cores have finished init.
 static CORES_ONLINE: AtomicU8 = AtomicU8::new(1);
@@ -156,7 +163,7 @@ pub extern "C" fn kmain() -> ! {
     exc::register_irq(timer::TIMER_IRQ_ID, timer::handle_tick);
     gic::set_priority(timer::TIMER_IRQ_ID, 0x80);
     gic::enable(timer::TIMER_IRQ_ID);
-    timer::init(1000);
+    timer::init(os_cfg::TICK_RATE_HZ);
 
     unsafe { core::arch::asm!("msr daifclr, #2") };
 
@@ -219,7 +226,7 @@ pub extern "C" fn kmain() -> ! {
     kprintln!("net: loopback, IP 127.0.0.1");
 
     // Initialize klog subsystem.
-    kprintln!("klog: {}-entry ring buffer, level={}", 64, klog::get_level().as_str());
+    kprintln!("klog: {}-entry ring buffer, level={}", os_cfg::LOG_BUFFER_SIZE, klog::get_level().as_str());
 
     // Initialize watchdog.
     watchdog::init(WATCHDOG_TIMEOUT_MS);

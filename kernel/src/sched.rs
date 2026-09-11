@@ -5,10 +5,12 @@ use arch::context::Context;
 use crate::kprintln;
 use crate::spinlock::SpinLock;
 
-const MAX_TASKS: usize = 32;
-const MAX_PRIO: usize = 256;
-const TIMESLICE_TICKS: u32 = 10;
-const IDLE_STACK_SIZE: usize = 4096;
+use crate::os_cfg;
+
+const MAX_TASKS: usize = os_cfg::MAX_TASKS;
+const MAX_PRIO: usize = os_cfg::PRIO_LEVELS;
+const TIMESLICE_TICKS: u32 = os_cfg::TIMESLICE_TICKS;
+const IDLE_STACK_SIZE: usize = os_cfg::IDLE_STACK_SIZE;
 pub const MAX_CORES: usize = smp::MAX_CORES;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -64,6 +66,8 @@ pub struct Tcb {
     pub delay_ticks: u32,
     pub budget_ticks: u32,
     pub budget_remaining: u32,
+    pub budget_period: u32,
+    pub budget_replenish_at: u64,
     pub total_run_ticks: u64,
     pub ttbr0: u64,
     pub stack_base: usize,
@@ -88,6 +92,8 @@ impl Tcb {
             delay_ticks: 0,
             budget_ticks: 0,
             budget_remaining: 0,
+            budget_period: 0,
+            budget_replenish_at: 0,
             total_run_ticks: 0,
             ttbr0: 0,
             stack_base: 0,
@@ -300,6 +306,8 @@ fn create_idle_task(s: &mut Scheduler, core: usize) {
         delay_ticks: 0,
         budget_ticks: 0,
         budget_remaining: 0,
+        budget_period: 0,
+        budget_replenish_at: 0,
         total_run_ticks: 0,
         ttbr0: 0,
         stack_base,
@@ -354,6 +362,8 @@ pub fn task_create(
         delay_ticks: 0,
         budget_ticks: 0,
         budget_remaining: 0,
+        budget_period: 0,
+        budget_replenish_at: 0,
         total_run_ticks: 0,
         ttbr0: 0,
         stack_base,
@@ -423,6 +433,8 @@ pub fn task_create_user(
         delay_ticks: 0,
         budget_ticks: 0,
         budget_remaining: 0,
+        budget_period: 0,
+        budget_replenish_at: 0,
         total_run_ticks: 0,
         ttbr0,
         stack_base,
@@ -668,12 +680,42 @@ pub fn tick() {
         s.idle_ticks += 1;
     }
 
-    // Budget enforcement.
+    let mut woke_higher = false;
+    let cur_prio = s.tasks[idx].priority;
+
+    // Budget enforcement: suspend task on overrun, call hook.
     if s.tasks[idx].budget_ticks > 0 && s.tasks[idx].budget_remaining > 0 {
         s.tasks[idx].budget_remaining -= 1;
         if s.tasks[idx].budget_remaining == 0 {
             crate::klog_warn!("sched", "task '{}' (id={}) budget exhausted",
                 s.tasks[idx].name, s.tasks[idx].id);
+            crate::hooks::os_hook_budget_overrun(s.tasks[idx].id, s.tasks[idx].name);
+            if os_cfg::BUDGET_EN {
+                s.tasks[idx].state = TaskState::Suspended;
+                s.tasks[idx].core = 0xFF;
+                if s.tasks[idx].budget_period > 0 {
+                    s.tasks[idx].budget_replenish_at =
+                        s.total_ticks + s.tasks[idx].budget_period as u64;
+                }
+                woke_higher = true;
+            }
+        }
+    }
+
+    // Budget replenishment: re-ready suspended tasks whose period has elapsed.
+    for i in 0..MAX_TASKS {
+        if s.tasks[i].state == TaskState::Suspended
+            && s.tasks[i].budget_period > 0
+            && s.tasks[i].budget_replenish_at > 0
+            && s.total_ticks >= s.tasks[i].budget_replenish_at
+        {
+            s.tasks[i].budget_remaining = s.tasks[i].budget_ticks;
+            s.tasks[i].budget_replenish_at = 0;
+            s.tasks[i].state = TaskState::Ready;
+            s.enqueue(i as u8);
+            if s.tasks[i].priority < cur_prio {
+                woke_higher = true;
+            }
         }
     }
 
@@ -683,8 +725,6 @@ pub fn tick() {
     }
 
     // Check all blocked tasks for delay expiry.
-    let mut woke_higher = false;
-    let cur_prio = s.tasks[s.current[core] as usize].priority;
     for i in 0..MAX_TASKS {
         if s.tasks[i].state == TaskState::Blocked && s.tasks[i].delay_ticks > 0 {
             s.tasks[i].delay_ticks -= 1;
@@ -1061,6 +1101,16 @@ pub fn task_reset_budget(id: u8) {
     SCHED_LOCK.unlock(saved);
 }
 
+pub fn task_set_budget_period(id: u8, period_ticks: u32) {
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+    let idx = id as usize;
+    if idx < MAX_TASKS && s.tasks[idx].state != TaskState::Dormant {
+        s.tasks[idx].budget_period = period_ticks;
+    }
+    SCHED_LOCK.unlock(saved);
+}
+
 pub fn task_set_criticality(id: u8, crit: Criticality) {
     let saved = SCHED_LOCK.lock();
     let s = sched();
@@ -1133,4 +1183,47 @@ pub fn task_list_ext() -> [(u8, &'static str, u8, TaskState, Criticality, u32, u
     }
     SCHED_LOCK.unlock(saved);
     result
+}
+
+// --- Health check helpers ---
+
+pub fn check_ready_queue_integrity() -> bool {
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+    let mut ok = true;
+    for prio in 0..MAX_PRIO {
+        let mut cursor = s.ready[prio].head;
+        while cursor != 0xFF {
+            let idx = cursor as usize;
+            if idx >= MAX_TASKS || s.tasks[idx].state != TaskState::Ready {
+                ok = false;
+                break;
+            }
+            cursor = s.tasks[idx].next;
+        }
+    }
+    SCHED_LOCK.unlock(saved);
+    ok
+}
+
+pub fn check_mutex_ownership() -> bool {
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+    let mut ok = true;
+    for i in 0..MAX_TASKS {
+        if s.tasks[i].state == TaskState::Dormant && s.tasks[i].priority != s.tasks[i].base_priority {
+            ok = false;
+        }
+    }
+    SCHED_LOCK.unlock(saved);
+    ok
+}
+
+pub fn check_tick_monotonicity() -> bool {
+    static mut LAST_TICK: u64 = 0;
+    let current = arch::aarch64::exceptions::tick_count();
+    // SAFETY: Only called from health monitor task (single caller).
+    let ok = unsafe { current >= LAST_TICK };
+    unsafe { LAST_TICK = current };
+    ok
 }

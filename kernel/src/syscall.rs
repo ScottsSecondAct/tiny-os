@@ -61,8 +61,10 @@ const GPIO_READ: u64 = 1;
 const GPIO_WRITE: u64 = 2;
 const GPIO_SET_PULL: u64 = 3;
 
-const MAX_USER_STR: usize = 256;
-const MAX_USER_BUF: usize = 4096;
+use crate::os_cfg;
+
+const MAX_USER_STR: usize = os_cfg::MAX_USER_STR;
+const MAX_USER_BUF: usize = os_cfg::MAX_USER_BUF;
 
 fn validate_user_buf(ptr: u64, len: usize) -> bool {
     !ptr.is_null_ptr() && len <= MAX_USER_BUF

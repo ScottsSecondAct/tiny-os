@@ -93,7 +93,7 @@ fn dispatch(cmd: &str) {
             kprintln!("          ping <ip>, netstat, ifconfig, temp,");
             #[cfg(feature = "dynamic-load")]
             kprintln!("          exec <path>,");
-            kprintln!("          yield, svc, reboot");
+            kprintln!("          faulttest, wcet, yield, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
@@ -406,6 +406,12 @@ fn dispatch(cmd: &str) {
             loop {
                 unsafe { core::arch::asm!("wfe") };
             }
+        }
+        "faulttest" => {
+            crate::fault_inject::run_all();
+        }
+        "wcet" => {
+            crate::wcet::dump_all();
         }
         "" => {}
         _ => {

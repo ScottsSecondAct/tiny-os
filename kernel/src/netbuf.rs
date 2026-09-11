@@ -1,10 +1,11 @@
 use core::sync::atomic::{AtomicU8, Ordering};
+use crate::os_cfg;
 use crate::spinlock::SpinLock;
 use crate::mm::{DMA_POOL_BASE, DMA_POOL_SIZE};
 
-const BUF_SLOT_SIZE: usize = 2048;
-const BUF_DATA_CAPACITY: u16 = 1536;
-const BUF_HEADROOM: u16 = 64;
+const BUF_SLOT_SIZE: usize = os_cfg::NETBUF_SLOT_SIZE;
+const BUF_DATA_CAPACITY: u16 = os_cfg::NETBUF_DATA_CAPACITY as u16;
+const BUF_HEADROOM: u16 = os_cfg::NETBUF_HEADROOM as u16;
 const MAX_BUFS: usize = DMA_POOL_SIZE / BUF_SLOT_SIZE;
 
 pub struct NetBuf {

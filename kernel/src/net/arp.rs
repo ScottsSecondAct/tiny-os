@@ -1,4 +1,5 @@
 use crate::netbuf;
+use crate::os_cfg;
 use super::{ethernet, Ipv4Addr};
 use core::cell::UnsafeCell;
 
@@ -8,7 +9,7 @@ const ARP_OP_REQUEST: u16 = 1;
 const ARP_OP_REPLY: u16 = 2;
 const ARP_PACKET_LEN: usize = 28;
 
-const MAX_ARP_ENTRIES: usize = 16;
+const MAX_ARP_ENTRIES: usize = os_cfg::MAX_ARP_ENTRIES;
 
 #[derive(Clone, Copy)]
 pub struct ArpEntry {

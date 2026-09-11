@@ -1,6 +1,7 @@
 use arch::block::{BlockDevice, BlockError};
+use crate::os_cfg;
 
-const CACHE_LINES: usize = 32;
+const CACHE_LINES: usize = os_cfg::CACHE_LINES;
 const BLOCK_SIZE: usize = 512;
 
 struct CacheLine {

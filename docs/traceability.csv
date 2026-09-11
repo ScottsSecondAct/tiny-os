@@ -1,0 +1,57 @@
+Requirement ID,Spec Section,Description,Implementation File,Test Coverage,Status
+REQ-CFG-001,10.1,OS_CFG_MAX_TASKS compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-002,10.1,OS_CFG_TICK_RATE_HZ compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-003,10.1,OS_CFG_PRIO_LEVELS compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-004,10.1,OS_CFG_TIMESLICE_TICKS compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-005,10.1,OS_CFG_SMP_CORES compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-006,10.1,OS_CFG_USER_STACK_SIZE compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-007,10.1,OS_CFG_KERN_STACK_SIZE compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-008,10.1,OS_CFG_MAX_MUTEX_NEST compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-009,10.1,OS_CFG_HEALTH_CHECK_INTERVAL compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-010,10.1,OS_CFG_WDT_TIMEOUT_MS compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-011,10.1,OS_CFG_DIAG_REGION_SIZE compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-012,10.1,OS_CFG_MAX_POOLS compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-013,10.1,OS_CFG_MIN_DRAM_MB compile-time validation,kernel/src/os_cfg.rs,const assert,Done
+REQ-CFG-014,10.2,Safety-critical requires BUDGET_EN,kernel/src/os_cfg.rs,const assert,Done
+REQ-POOL-001,6.2,os_pool_create initializes pool from static buffer,kernel/src/mm/pool.rs,fault_inject::test_pool_exhaust,Done
+REQ-POOL-002,6.2,os_pool_alloc O(1) free-list pop,kernel/src/mm/pool.rs,fault_inject::test_pool_exhaust,Done
+REQ-POOL-003,6.2,os_pool_free O(1) free-list push,kernel/src/mm/pool.rs,fault_inject::test_pool_exhaust,Done
+REQ-POOL-004,6.2,Pool validates block pointer on free,kernel/src/mm/pool.rs,fault_inject::test_pool_bad_ptr,Done
+REQ-POOL-005,6.2,Pool returns NoMemory when exhausted,kernel/src/mm/pool.rs,fault_inject::test_pool_exhaust,Done
+REQ-SAFE-001,6.1,Safety-critical mode disables heap,kernel/src/mm/heap.rs,cfg(safety-critical) gate,Done
+REQ-SAFE-002,11.4,Safety-critical requires budget enforcement,kernel/src/os_cfg.rs,const assert,Done
+REQ-HOOK-001,11.2,os_hook_idle default WFI,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-002,11.2,os_hook_stack_overflow default log,kernel/src/hooks.rs,fault_inject::test_health_hooks,Done
+REQ-HOOK-003,11.2,os_hook_data_abort default log,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-004,11.2,os_hook_hard_fault default log,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-005,11.2,os_hook_assert default log,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-006,11.2,os_hook_task_create default no-op,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-007,11.2,os_hook_task_switch default no-op,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-008,11.2,os_hook_budget_overrun default log,kernel/src/hooks.rs,fault_inject::test_health_hooks,Done
+REQ-HOOK-009,11.2,os_hook_deadline_miss default log,kernel/src/hooks.rs,fault_inject::test_health_hooks,Done
+REQ-HOOK-010,11.2,os_hook_task_terminated default log,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-011,11.2,os_hook_watchdog_expired default log,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HOOK-012,11.2,os_hook_health_check_failed default log,kernel/src/hooks.rs,fault_inject::test_health_hooks,Done
+REQ-HOOK-013,11.2,os_hook_shutdown default log,kernel/src/hooks.rs,N/A (shutdown path),Done
+REQ-HOOK-014,11.2,os_hook_safety_critical_lost default log,kernel/src/hooks.rs,fault_inject::test_hook_invocation,Done
+REQ-HEALTH-001,11.5,Check stack watermarks,kernel/src/health.rs,QEMU integration,Done
+REQ-HEALTH-002,11.5,Check CPU utilization,kernel/src/health.rs,QEMU integration,Done
+REQ-HEALTH-003,11.5,Check watchdog status,kernel/src/health.rs,QEMU integration,Done
+REQ-HEALTH-004,11.5,Check ready queue integrity,kernel/src/health.rs,sched::check_ready_queue_integrity,Done
+REQ-HEALTH-005,11.5,Check mutex ownership,kernel/src/health.rs,sched::check_mutex_ownership,Done
+REQ-HEALTH-006,11.5,Check tick monotonicity,kernel/src/health.rs,sched::check_tick_monotonicity,Done
+REQ-HEALTH-007,11.5,Check pool accounting,kernel/src/health.rs,pool::pool_info,Done
+REQ-SHUTDOWN-001,11.3,Mask interrupts on shutdown,kernel/src/shutdown.rs,N/A (destructive),Done
+REQ-SHUTDOWN-002,11.3,Save diagnostic registers,kernel/src/shutdown.rs,fault_inject::test_diag_region,Done
+REQ-SHUTDOWN-003,11.3,Log fault state to UART,kernel/src/shutdown.rs,N/A (destructive),Done
+REQ-SHUTDOWN-004,11.3,Call os_hook_shutdown,kernel/src/shutdown.rs,N/A (destructive),Done
+REQ-SHUTDOWN-005,11.3,Reboot or halt based on OS_CFG,kernel/src/shutdown.rs,N/A (destructive),Done
+REQ-CRIT-001,11.6,os_criticality_switch suspends lower tasks,kernel/src/criticality.rs,fault_inject::test_criticality_switch,Done
+REQ-CRIT-002,11.6,os_criticality_restore resumes tasks,kernel/src/criticality.rs,fault_inject::test_criticality_switch,Done
+REQ-WCET-001,5.4,PMU cycle counter measurement,kernel/src/wcet.rs,shell wcet command,Done
+REQ-WCET-002,5.4,WCET bounds for kernel services,kernel/src/wcet.rs,constants defined,Done
+REQ-BUDGET-001,4.8,Budget enforcement suspends on overrun,kernel/src/sched.rs,fault_inject::test_budget_overrun,Done
+REQ-BUDGET-002,4.8,Period-based budget replenishment,kernel/src/sched.rs,budget_period field,Done
+REQ-BUDGET-003,4.8,os_hook_budget_overrun called on exhaustion,kernel/src/sched.rs,hook invocation in tick(),Done
+REQ-SCHED-001,5.3,RMA utilization check,kernel/src/sched_analysis.rs,precomputed bounds,Done
+REQ-SCHED-002,5.3,Response-Time Analysis with PIP blocking,kernel/src/sched_analysis.rs,iterative RTA,Done

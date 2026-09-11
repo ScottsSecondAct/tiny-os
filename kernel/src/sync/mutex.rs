@@ -1,9 +1,10 @@
 use core::cell::UnsafeCell;
+use crate::os_cfg;
 use crate::sched::{self, CriticalSection, WaitResult};
 use super::WaitQueue;
 
 const NONE: u8 = 0xFF;
-const MAX_NEST: u8 = 8;
+const MAX_NEST: u8 = os_cfg::MAX_MUTEX_NEST;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum MutexProtocol {

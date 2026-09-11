@@ -1,7 +1,8 @@
 use core::cell::UnsafeCell;
+use crate::os_cfg;
 use crate::sched::{self, CriticalSection, WaitResult};
 
-const MAX_EVENT_WAITERS: usize = 16;
+const MAX_EVENT_WAITERS: usize = os_cfg::MAX_EVENT_WAITERS;
 const NONE: u8 = 0xFF;
 
 #[derive(Clone, Copy, PartialEq, Debug)]

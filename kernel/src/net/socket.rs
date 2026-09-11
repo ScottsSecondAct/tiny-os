@@ -1,8 +1,9 @@
 use super::{tcp, udp, ipv4, Ipv4Addr};
 use arch::net::NetError;
 use core::cell::UnsafeCell;
+use crate::os_cfg;
 
-const MAX_SOCKETS: usize = 8;
+const MAX_SOCKETS: usize = os_cfg::MAX_SOCKETS;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SockType {

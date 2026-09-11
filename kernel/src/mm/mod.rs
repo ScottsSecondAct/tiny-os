@@ -1,17 +1,19 @@
 pub mod dtb;
 pub mod heap;
 pub mod pmm;
+pub mod pool;
 
 use core::cell::UnsafeCell;
 use arch::aarch64::mmu::{self, MemKind, MemRegion};
 use arch::mm::PageAllocator;
 use crate::kprintln;
+use crate::os_cfg;
 
 const PAGE_SIZE: usize = 4096;
-const HEAP_PAGES: usize = 64; // 256 KB initial heap
+const HEAP_PAGES: usize = os_cfg::HEAP_PAGES;
 
-pub const DMA_POOL_BASE: usize = 0x0100_0000; // 16 MB mark, 2MB-aligned
-pub const DMA_POOL_SIZE: usize = 0x0020_0000; // 2 MB
+pub const DMA_POOL_BASE: usize = os_cfg::DMA_POOL_BASE;
+pub const DMA_POOL_SIZE: usize = os_cfg::DMA_POOL_SIZE;
 
 extern "C" {
     static __stack_top: u8;
@@ -54,15 +56,20 @@ pub fn init() {
     pmm().mark_range_used(DMA_POOL_BASE, DMA_POOL_SIZE);
     kprintln!("dma pool: {:#x} - {:#x} ({} KB, non-cacheable)", DMA_POOL_BASE, DMA_POOL_BASE + DMA_POOL_SIZE, DMA_POOL_SIZE >> 10);
 
-    // Seed the heap from PMM pages.
-    let mut heap_bytes = 0usize;
-    for _ in 0..HEAP_PAGES {
-        if let Some(pa) = pmm().alloc_page() {
-            unsafe { heap::add_region(pa, PAGE_SIZE) };
-            heap_bytes += PAGE_SIZE;
+    // Seed the heap from PMM pages (disabled in safety-critical mode).
+    #[cfg(not(feature = "safety-critical"))]
+    {
+        let mut heap_bytes = 0usize;
+        for _ in 0..HEAP_PAGES {
+            if let Some(pa) = pmm().alloc_page() {
+                unsafe { heap::add_region(pa, PAGE_SIZE) };
+                heap_bytes += PAGE_SIZE;
+            }
         }
+        kprintln!("heap: {} KB", heap_bytes >> 10);
     }
-    kprintln!("heap: {} KB", heap_bytes >> 10);
+    #[cfg(feature = "safety-critical")]
+    kprintln!("heap: disabled (safety-critical mode, use pool allocator)");
 }
 
 pub fn page_stats() -> (usize, usize, usize) {
