@@ -1,4 +1,4 @@
-use crate::{kprint, kprintln, mm};
+use crate::{kprint, kprintln, mm, sched};
 use arch::aarch64::exceptions;
 use arch::aarch64::mmu;
 use arch::aarch64::timer;
@@ -42,8 +42,8 @@ pub fn run(uart: &mut impl UartDriver) -> ! {
             }
         }
 
-        // Yield the core briefly to reduce busy-wait power.
-        core::hint::spin_loop();
+        // No input available — sleep briefly so lower-priority tasks can run.
+        sched::delay(1);
     }
 }
 
@@ -87,7 +87,7 @@ fn uart_fr_addr() -> usize {
 fn dispatch(cmd: &str) {
     match cmd.trim() {
         "help" => {
-            kprintln!("commands: help, uptime, ticks, info, mem, svc, reboot");
+            kprintln!("commands: help, uptime, ticks, info, mem, tasks, yield, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
@@ -111,6 +111,26 @@ fn dispatch(cmd: &str) {
             let (htotal, hused, hfree) = mm::heap_stats();
             kprintln!("heap:   {} total, {} used, {} free", htotal, hused, hfree);
             kprintln!("MMU:    {}", if mmu::enabled() { "on" } else { "off" });
+        }
+        "tasks" => {
+            kprintln!("{:<4} {:<12} {:<6} {:<10}", "ID", "NAME", "PRIO", "STATE");
+            for entry in sched::task_list().iter() {
+                let (id, name, prio, state) = *entry;
+                if state != sched::TaskState::Dormant {
+                    let state_str = match state {
+                        sched::TaskState::Ready => "ready",
+                        sched::TaskState::Running => "running",
+                        sched::TaskState::Blocked => "blocked",
+                        sched::TaskState::Suspended => "suspended",
+                        sched::TaskState::Dormant => "dormant",
+                    };
+                    kprintln!("{:<4} {:<12} {:<6} {:<10}", id, name, prio, state_str);
+                }
+            }
+        }
+        "yield" => {
+            kprintln!("yielding...");
+            sched::task_yield();
         }
         "svc" => {
             unsafe { core::arch::asm!("svc #42") };

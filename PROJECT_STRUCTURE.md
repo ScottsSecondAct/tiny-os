@@ -29,6 +29,7 @@ tiny_os/
 │       ├── irq.rs          # InterruptController trait definition
 │       ├── timer.rs        # Timer trait definition
 │       ├── mm.rs           # PageAllocator trait definition
+│       ├── context.rs      # Context HAL trait: new_context(), switch()
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
 │           ├── boot.S      # _start: save DTB ptr, park secondaries, EL3→EL1 (secure)
@@ -40,9 +41,13 @@ tiny_os/
 │           ├── gic.rs      # GIC-400 (GICv2) driver: distributor + CPU interface
 │           ├── timer.rs    # ARM Generic Timer (virtual timer CNTV, 1kHz tick,
 │           │               #   CVAL-based acknowledge)
-│           └── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
-│                           #   mapping with 2MB blocks, W^X policy (RoCode RX,
-│                           #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config
+│           ├── mmu.rs      # MMU setup: static L0/L1/L2 page tables, identity
+│           │               #   mapping with 2MB blocks, W^X policy (RoCode RX,
+│           │               #   Ram RW+NX, Device NX), MAIR/TCR/SCTLR config
+│           ├── context.rs  # Aarch64Context: builds fake stack frame for new
+│           │               #   tasks, wraps context_switch FFI call
+│           └── context_switch.S  # AArch64 context switch (save/restore x19-x30,
+│                           #   swap SP) and task_trampoline (IRQ enable + entry call)
 │
 ├── bsp/                    # Board Support Package crate — concrete HAL implementations
 │   ├── Cargo.toml          # Features: bsp-rpi5 (default), bsp-qemu (mutually exclusive)
@@ -66,13 +71,18 @@ tiny_os/
     │                       #   .rodata, ALIGN(2M) __data_start (W^X boundary),
     │                       #   .data, .bss (16-byte aligned), .stack
     └── src/
-        ├── main.rs         # kmain(): init UART/GIC/timer, mm::init(), tick verify, shell
+        ├── main.rs         # kmain(): init UART/GIC/timer, mm::init(), tick verify,
+        │                   #   sched::init(), create tasks, sched::start()
         ├── panic.rs        # #[panic_handler]: print message + location, WFE halt
         ├── print.rs        # kprint!() / kprintln!() macros via core::fmt::Write
         ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), sync exception
-        │                   #   handler (SVC detection, ESR decoding), unhandled trap
+        │                   #   handler (SVC detection, ESR decoding), unhandled trap;
+        │                   #   timer tick calls sched::tick() for preemption
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
-        │                   #   svc, reboot
+        │                   #   tasks, yield, svc, reboot; uses sched::delay() polling
+        ├── sched.rs        # 256-level fixed-priority preemptive scheduler: TCB array,
+        │                   #   per-priority FIFO ready queues, 4×u64 bitmap for O(1)
+        │                   #   dispatch, delay-based blocking, CriticalSection RAII guard
         └── mm/             # Memory management subsystem
             ├── mod.rs      # MM init: DTB RAM discovery → PMM → MMU enable → heap seed
             ├── dtb.rs      # Minimal FDT parser: extracts /memory node reg property

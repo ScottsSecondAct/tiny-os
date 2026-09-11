@@ -1,6 +1,7 @@
 use crate::kprintln;
+use crate::sched;
 use arch::aarch64::exceptions::TrapFrame;
-use arch::aarch64::{exceptions, gic};
+use arch::aarch64::{exceptions, gic, timer};
 
 #[no_mangle]
 extern "C" fn handle_irq(_tf: &mut TrapFrame) {
@@ -11,6 +12,11 @@ extern "C" fn handle_irq(_tf: &mut TrapFrame) {
             kprintln!("warning: unhandled IRQ {}", irq_id);
         }
         gic::end_of_interrupt(irq_id);
+
+        // After handling a timer tick, let the scheduler check for preemption.
+        if irq_id == timer::TIMER_IRQ_ID {
+            sched::tick();
+        }
     }
 }
 

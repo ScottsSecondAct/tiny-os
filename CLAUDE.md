@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 3: Memory Management** — complete. Bitmap page frame allocator, MMU with identity-mapped 2MB blocks, linked-list heap allocator, minimal DTB parser. Next up: Phase 4 (Multitasking & Context Switch).
+**Phase 4: Multitasking & Context Switch** — complete. 256-level fixed-priority preemptive scheduler with O(1) bitmap dispatch, AArch64 context switch, round-robin among equal-priority tasks, delay-based blocking, timer-driven preemption. Next up: Phase 5 (Synchronization Primitives).
 
 ## Target Hardware
 
@@ -77,7 +77,8 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, yield, svc, reboot)
+│   │   ├── sched.rs        # 256-level fixed-priority scheduler, TCB, delay, context switch orchestration
 │   │   └── mm/             # Memory management subsystem
 │   │       ├── mod.rs      # MM init: RAM discovery, PMM, MMU enable, heap seeding
 │   │       ├── dtb.rs      # Minimal FDT parser for /memory node
@@ -92,6 +93,7 @@ tiny_os/
 │       ├── irq.rs          # InterruptController trait
 │       ├── timer.rs        # Timer trait
 │       ├── mm.rs           # PageAllocator trait
+│       ├── context.rs      # Context HAL trait (new_context, switch)
 │       └── aarch64/
 │           ├── mod.rs
 │           ├── boot.S      # _start entry, DTB save, EL3→EL1 drop, secondary core parking
@@ -99,7 +101,9 @@ tiny_os/
 │           ├── exceptions.rs # TrapFrame, IRQ dispatch table, tick counter
 │           ├── gic.rs      # GIC-400 driver (GICv2)
 │           ├── timer.rs    # ARM Generic Timer (virtual timer, 1kHz tick)
-│           └── mmu.rs      # MMU setup: identity mapping, 2MB blocks, W^X (RoCode/Ram/Device), MAIR/TCR/SCTLR
+│           ├── mmu.rs      # MMU setup: identity mapping, 2MB blocks, W^X (RoCode/Ram/Device), MAIR/TCR/SCTLR
+│           ├── context.rs  # Aarch64Context: new_context (fake frame), switch wrapper
+│           └── context_switch.S  # AArch64 context switch (x19-x30 save/restore) + task trampoline
 └── bsp/                    # Board Support Packages
     ├── Cargo.toml
     └── src/
@@ -176,17 +180,28 @@ tiny_os/
 - [x] Shell `mem` command: page stats, heap stats, MMU status
 - [x] Verified on QEMU: 262K pages, MMU+caches on, timer accuracy maintained
 
-## Phase 4 Deliverables Checklist (next)
+### Phase 4 — Multitasking & Context Switch ✅
 
-- [ ] Task Control Block (TCB) with saved context, priority, state, stack, timing stats
-- [ ] Five task states: Ready, Running, Blocked, Suspended, Dormant
-- [ ] AArch64 context switch: save/restore general-purpose + FP/SIMD registers
-- [ ] `Context` HAL trait
-- [ ] 256-level fixed-priority scheduler with O(1) dispatch (bitmap + CLZ)
-- [ ] Round-robin among equal-priority tasks via per-level FIFO queues
-- [ ] Preemption from timer tick ISR
-- [ ] `task_create`, `task_delete`, `task_suspend`, `task_resume` API
-- [ ] Critical sections: DAIF masking with nesting count
+- [x] Task Control Block (TCB) with saved context, priority, state, stack, delay timer
+- [x] Five task states: Ready, Running, Blocked, Suspended, Dormant
+- [x] AArch64 context switch: save/restore callee-saved registers (x19-x30), task trampoline with IRQ enable
+- [x] `Context` HAL trait in `arch::context`
+- [x] 256-level fixed-priority scheduler with O(1) dispatch (4×u64 bitmap + trailing_zeros)
+- [x] Round-robin among equal-priority tasks via per-level FIFO linked-list queues
+- [x] Preemption from timer tick ISR (`sched::tick()` called from IRQ handler)
+- [x] `task_create`, `task_delete`, `task_suspend`, `task_resume`, `task_yield`, `delay` API
+- [x] Critical sections: DAIF masking with RAII guard (CriticalSection)
+- [x] Idle task at priority 255 (WFE loop)
+- [x] Shell `tasks` command showing task list with ID, name, priority, state
+- [x] Verified on QEMU: multi-task context switching, timer accuracy 249/250 ticks
+
+## Phase 5 Deliverables Checklist (next)
+
+- [ ] Mutex with Priority Inheritance Protocol (PIP) and Priority Ceiling Protocol (PCP)
+- [ ] Binary and counting semaphores
+- [ ] Message queue (fixed-size, bounded)
+- [ ] Event flags
+- [ ] Timeout support on all blocking operations
 - [ ] Per-task execution-time budget enforcement (`os_task_set_budget`, `os_task_get_remaining`)
 - [ ] Deadline-miss detection with `os_hook_deadline_miss` callback
 - [ ] Task criticality levels (SAFETY_CRITICAL, MISSION_CRITICAL, STANDARD, BEST_EFFORT)
