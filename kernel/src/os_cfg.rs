@@ -120,6 +120,13 @@ pub const MAX_USB_DEVICES: usize = 8;
 pub const CRYPTO_AES_BLOCK_SIZE: usize = 16;
 pub const RTC_EPOCH_YEAR: u16 = 2000;
 
+// --- Phase 14: Advanced Attack Hardening ---
+
+pub const PAC_EN: bool = cfg!(feature = "bsp-rpi5");
+pub const SECURE_WIPE_EN: bool = true;
+pub const SYSCALL_RATE_LIMIT: u32 = 1000;
+pub const SYSCALL_RATE_WINDOW_MS: u32 = 1000;
+
 // --- Netbuf ---
 
 pub const NETBUF_SLOT_SIZE: usize = 2048;

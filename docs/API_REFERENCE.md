@@ -64,6 +64,8 @@ Interactive commands at the `tiny_os>` UART prompt. Type `help` for the built-in
 | `power` | Show CPU frequency, min/max, and voltage |
 | `crypto` | Show ARMv8 Crypto Extensions detection and supported algorithms |
 | `uart` | Show serial port count and RP1 UART info |
+| `pac` | Show PAC (Pointer Authentication) detection status and key state |
+| `security` | Show combined security status: PAC, secure wipe, rate limiting |
 | `exec <path>` | Load and execute an ELF64 binary from filesystem (requires `dynamic-load` feature) |
 | `yield` | Yield the current task's timeslice |
 | `svc` | Trigger a test SVC #42 exception |
@@ -123,6 +125,7 @@ All subsystem syscalls return `u64::MAX` (`0xFFFF_FFFF_FFFF_FFFF`) family values
 | `u64::MAX-6` | `E_NOSPC` | No space left |
 | `u64::MAX-7` | `E_BUSY` | Resource busy |
 | `u64::MAX-8` | `E_PERM` | Permission denied |
+| `u64::MAX-9` | `E_RATE_LIMIT` | Syscall rate limit exceeded |
 
 #### SYS_FS (10) — Filesystem
 
@@ -915,7 +918,7 @@ pub fn text_size() -> usize           // Size of verified .text region
 
 ### Audit Log (`kernel::audit`)
 
-Security event recording with 64-entry ring buffer and FAT32 persistence.
+Security event recording with 64-entry ring buffer (11 event types) and FAT32 persistence.
 
 ```rust
 pub fn log(event: AuditEvent, detail: &str)
@@ -930,6 +933,7 @@ pub enum AuditEvent {
     FirewallDrop, CapabilityDenied,
     IntegrityOk, IntegrityFail,
     TaskCreated, TaskTerminated,
+    RateLimited,
 }
 ```
 
@@ -946,6 +950,42 @@ pub fn lockdown()   // Lock OSLAR_EL1 + disable GPIO 22-27 on Pi 5
 ### Shell Authentication
 
 When `os_cfg::SHELL_AUTH_EN` is true (auto-enabled in safety-critical mode), the shell requires password authentication before granting access. The password is stored as a compile-time SHA-256 hash — no plaintext in the binary. After 3 failed attempts, the shell locks out for 30 seconds.
+
+### Pointer Authentication (`kernel::pac`)
+
+ARMv8.3 Pointer Authentication Code (PAC) support for return address signing. Protects against ROP attacks. cfg-gated for `bsp-rpi5` only (Cortex-A76 supports ARMv8.3; QEMU Cortex-A72 does not).
+
+```rust
+pub fn detect() -> bool            // Check ID_AA64ISAR1_EL1 for APA/API support
+pub fn init()                      // Initialize APIA key and enable EnIA in SCTLR_EL1
+pub fn is_active() -> bool         // Returns true if PAC is currently enabled
+pub fn is_supported() -> bool      // Returns true if hardware supports PAC
+pub fn status()                    // Print PAC status to console
+```
+
+### Syscall Rate Limiting (`kernel::sched`)
+
+Per-task sliding window rate limiter protecting against denial-of-service via excessive syscalls. Default: 1000 calls per 1000ms window.
+
+```rust
+pub fn check_syscall_rate(current_tick: u64) -> bool  // Returns false if rate exceeded
+```
+
+When the rate limit is exceeded, the syscall dispatcher returns `E_RATE_LIMIT` (`u64::MAX - 9`) and logs a `RateLimited` audit event.
+
+Configuration constants in `os_cfg`:
+- `SYSCALL_RATE_LIMIT: u32 = 1000` — max calls per window
+- `SYSCALL_RATE_WINDOW_MS: u32 = 1000` — window duration in milliseconds
+
+### Secure Memory Wiping (`kernel::sched`)
+
+Volatile zeroing of sensitive task data on termination. Controlled by `os_cfg::SECURE_WIPE_EN` (default: true).
+
+On `task_terminate()`, before the task transitions to Dormant state:
+- The entire task stack is zeroed (stack_base to stack_base + stack_size)
+- Sensitive TCB fields are zeroed: saved SP, capabilities, syscall counters, run-time ticks
+
+Uses `core::ptr::write_volatile` with `#[inline(always)]` to prevent compiler elision.
 
 ---
 

@@ -18,6 +18,7 @@ pub enum AuditEvent {
     IntegrityFail = 7,
     TaskCreated = 8,
     TaskTerminated = 9,
+    RateLimited = 10,
 }
 
 impl AuditEvent {
@@ -33,6 +34,7 @@ impl AuditEvent {
             AuditEvent::IntegrityFail => "INTEG_FAIL",
             AuditEvent::TaskCreated => "TASK_NEW",
             AuditEvent::TaskTerminated => "TASK_TERM",
+            AuditEvent::RateLimited => "RATE_LIM",
         }
     }
 }

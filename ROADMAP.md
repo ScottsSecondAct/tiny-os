@@ -1,6 +1,6 @@
 # Roadmap
 
-tiny_os is developed in 13 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
+tiny_os is developed in 14 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
 
 ---
 
@@ -381,6 +381,45 @@ Harden tiny_os against the attack patterns that compromise industrial control sy
 - [x] All 6 BSP×feature configurations build cleanly
 - [x] QEMU integration tests: 15 checks including code integrity init and audit log init
 - [x] 86 requirements traced in `docs/traceability.csv` (30 REQ-SEC-* entries added)
+
+---
+
+## Phase 14 — Advanced Attack Hardening ✅
+
+Advanced runtime attack mitigations: pointer authentication, secure memory wiping, and syscall rate limiting.
+
+**Deliverables:**
+
+*Pointer Authentication (ARMv8.3 PAC):*
+- [x] `kernel::pac` module: runtime detection via ID_AA64ISAR1_EL1 (APA/API fields)
+- [x] APIA key initialization via encoded system registers (S3_0_C2_C1_0 = APIAKeyLo_EL1, S3_0_C2_C1_1 = APIAKeyHi_EL1)
+- [x] SCTLR_EL1 EnIA (bit 31) enable for instruction address authentication
+- [x] cfg-gated for `bsp-rpi5` only (Cortex-A76 supports ARMv8.3; QEMU raspi4b Cortex-A72 does not)
+- [x] `pac::detect()`, `pac::init()`, `pac::is_active()`, `pac::is_supported()`, `pac::status()`
+
+*Secure Memory Wiping:*
+- [x] Volatile zeroing of task stack memory (stack_base to stack_base + stack_size) on task termination
+- [x] Volatile zeroing of sensitive TCB fields (sp, capabilities, syscall_count, syscall_window_start, total_run_ticks)
+- [x] `#[inline(always)]` secure_wipe function using `core::ptr::write_volatile` to prevent compiler elision
+- [x] Controlled by `os_cfg::SECURE_WIPE_EN` (default true)
+- [x] Wipe occurs in `task_terminate()` before task state transitions to Dormant
+
+*Syscall Rate Limiting:*
+- [x] Per-task `syscall_count: u32` and `syscall_window_start: u64` fields in TCB
+- [x] Sliding window rate limiter: `check_syscall_rate()` enforces `SYSCALL_RATE_LIMIT` calls per `SYSCALL_RATE_WINDOW_MS`
+- [x] New error code `E_RATE_LIMIT` (`u64::MAX - 9`) returned when rate exceeded
+- [x] `RateLimited` audit event (type 10) logged on rate limit violation
+- [x] Configuration: `os_cfg::SYSCALL_RATE_LIMIT` (default 1000), `os_cfg::SYSCALL_RATE_WINDOW_MS` (default 1000)
+
+*Shell & Integration:*
+- [x] Shell command: `pac` (PAC detection status, key initialized, active)
+- [x] Shell command: `security` (combined PAC, secure wipe, rate limit status)
+- [x] Boot banner updated to "Phase 14: Advanced Attack Hardening"
+- [x] 11 audit event types (added RateLimited = 10)
+
+*Verification:*
+- [x] All 6 BSP×feature configurations build cleanly (bsp-qemu, bsp-rpi5, ×dynamic-load, ×safety-critical)
+- [x] All 51 host tests pass with no regressions
 
 ---
 

@@ -9,7 +9,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**All 13 phases complete.** The full implementation spans bare-metal bootstrap, interrupts, memory management, multitasking, synchronization, driver framework, SMP, storage, filesystem, networking & user mode, safety certification, extended peripherals, and security hardening. Highlights: 18 HAL traits, 21 syscalls with 19 capability bits, SMP across 4 Cortex-A76 cores, FAT32 filesystem, TCP/IP network stack, EL0 user-mode tasks with per-task page tables, ARMv8 Crypto Extensions, SDR104 UHS-I SD card, DVFS power management, allowlist firewall, persistent audit log, and RTOS certification provisions (WCET, MC/DC, health monitoring, mixed-criticality partitioning). 51 host tests, 15 QEMU integration checks, all 6 build configurations pass.
+**All 14 phases complete.** The full implementation spans bare-metal bootstrap, interrupts, memory management, multitasking, synchronization, driver framework, SMP, storage, filesystem, networking & user mode, safety certification, extended peripherals, security hardening, and advanced attack hardening. Highlights: 18 HAL traits, 21 syscalls with 19 capability bits, SMP across 4 Cortex-A76 cores, FAT32 filesystem, TCP/IP network stack, EL0 user-mode tasks with per-task page tables, ARMv8 Crypto Extensions, SDR104 UHS-I SD card, DVFS power management, allowlist firewall, persistent audit log, ARMv8.3 pointer authentication, secure memory wiping, syscall rate limiting, and RTOS certification provisions (WCET, MC/DC, health monitoring, mixed-criticality partitioning). 51 host tests, 15 QEMU integration checks, all 6 build configurations pass.
 
 ## Target Hardware
 
@@ -108,7 +108,7 @@ tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, mailbox, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
 ├── examples/   # User-space applications (EL0): temp monitor, sensor gateway
-├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, firewall, crypto (SHA-256, HMAC, CRC32), integrity, audit, JTAG lockdown, syscalls, user tasks, ELF loader, netbuf, IRQ dispatch, memory mgmt, shell
+├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, firewall, crypto (SHA-256, HMAC, CRC32), integrity, audit, JTAG lockdown, PAC, syscall rate limiting, secure wipe, syscalls, user tasks, ELF loader, netbuf, IRQ dispatch, memory mgmt, shell
 ├── tests/      # Host unit tests (cargo test) + QEMU integration tests (boot verification)
 └── docs/       # Specifications, API reference, and developer guides
 ```
@@ -121,7 +121,7 @@ tiny_os/
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the full 13-phase implementation plan and long-term goals.
+See [ROADMAP.md](ROADMAP.md) for the full 14-phase implementation plan and long-term goals.
 
 ## License
 

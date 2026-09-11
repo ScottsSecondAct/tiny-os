@@ -34,6 +34,7 @@ const E_NOENT: u64 = u64::MAX - 5;
 const E_NOSPC: u64 = u64::MAX - 6;
 const E_BUSY: u64 = u64::MAX - 7;
 const E_PERM: u64 = u64::MAX - 8;
+const E_RATE_LIMIT: u64 = u64::MAX - 9;
 
 // --- FS operation codes (X0) ---
 const FS_OPEN: u64 = 0;
@@ -786,6 +787,13 @@ pub fn dispatch(tf: &mut TrapFrame) {
                 _ => "syscall",
             });
         tf.regs[0] = E_PERM;
+        return;
+    }
+
+    let current_tick = arch::aarch64::exceptions::tick_count();
+    if !sched::check_syscall_rate(current_tick) {
+        crate::audit::log(crate::audit::AuditEvent::RateLimited, "syscall");
+        tf.regs[0] = E_RATE_LIMIT;
         return;
     }
 

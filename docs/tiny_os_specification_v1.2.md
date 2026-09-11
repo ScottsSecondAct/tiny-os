@@ -996,7 +996,7 @@ When `OS_CFG_SHELL_AUTH_EN` is true (auto-enabled in safety-critical mode), the 
 
 #### 12.6.10 Persistent Audit Log (Implemented)
 
-A security event log (`kernel::audit`) records 10 event types (Boot, Shutdown, AuthOk, AuthFail, FirewallDrop, CapabilityDenied, IntegrityOk, IntegrityFail, TaskCreated, TaskTerminated) in a 64-entry ring buffer. Each entry records tick, core_id, task_id, event type, and a 40-byte detail string. The log can be persisted to the FAT32 filesystem via `audit persist`.
+A security event log (`kernel::audit`) records 11 event types (Boot, Shutdown, AuthOk, AuthFail, FirewallDrop, CapabilityDenied, IntegrityOk, IntegrityFail, TaskCreated, TaskTerminated, RateLimited) in a 64-entry ring buffer. Each entry records tick, core_id, task_id, event type, and a 40-byte detail string. The log can be persisted to the FAT32 filesystem via `audit persist`.
 
 #### 12.6.11 JTAG/Debug Lockdown (Implemented)
 
@@ -1009,6 +1009,43 @@ tiny-os does not implement its own secure boot, but is compatible with the Raspb
 - The Pi 5 OTP-based secure boot verifies `start4.elf` and the kernel image signature
 - `config.txt` option `secure_boot=1` enables this chain when OTP is programmed
 - tiny-os verifies runtime integrity of the kernel `.text` section using CRC32 checksums (see 12.6.7)
+
+#### 12.6.13 Pointer Authentication (Phase 14)
+
+On ARMv8.3-capable processors (including the Cortex-A76 on the BCM2712), tiny-os enables Pointer Authentication Codes (PAC) for return address signing. PAC protects against Return-Oriented Programming (ROP) attacks by cryptographically signing the link register (LR) on function entry and verifying it on return.
+
+| Component | Detail |
+| --- | --- |
+| Detection | Runtime check of ID_AA64ISAR1_EL1 APA and API fields |
+| Key setup | APIA key pair written via encoded system registers (S3_0_C2_C1_0, S3_0_C2_C1_1) |
+| Enable | SCTLR_EL1 bit 31 (EnIA) set to enable instruction address authentication |
+| Scope | cfg-gated for `bsp-rpi5` only; QEMU raspi4b (Cortex-A72) does not support ARMv8.3 and returns gracefully |
+
+**API:**
+- `pac::detect() -> bool` — checks hardware support
+- `pac::init()` — initializes keys and enables PAC if supported
+- `pac::is_active() -> bool` — returns true if PAC is enabled
+- `pac::is_supported() -> bool` — returns true if hardware supports PAC
+
+#### 12.6.14 Secure Memory Wiping (Phase 14)
+
+When a task terminates, tiny-os securely wipes sensitive data to prevent information leakage:
+
+- **Task stack**: The entire stack region (stack_base to stack_base + stack_size) is zeroed using volatile writes
+- **TCB fields**: Saved stack pointer, capability bitmask, syscall rate-limiting counters, and accumulated run-time ticks are zeroed
+
+The wipe uses `core::ptr::write_volatile` in an `#[inline(always)]` function to prevent the compiler from eliding the zeroing as a dead store. This occurs in `task_terminate()` before the task state transitions to Dormant. Controlled by `os_cfg::SECURE_WIPE_EN` (default: true).
+
+#### 12.6.15 Syscall Rate Limiting (Phase 14)
+
+To defend against denial-of-service attacks from compromised user tasks, tiny-os enforces per-task syscall rate limits using a sliding window algorithm:
+
+| Parameter | Default | Config Constant |
+| --- | --- | --- |
+| Maximum calls per window | 1000 | `OS_CFG_SYSCALL_RATE_LIMIT` |
+| Window duration (ms) | 1000 | `OS_CFG_SYSCALL_RATE_WINDOW_MS` |
+
+Each TCB carries a `syscall_count` and `syscall_window_start` timestamp. When the window expires, counters reset. If the limit is exceeded within the window, the syscall returns `E_RATE_LIMIT` (`u64::MAX - 9`) and a `RateLimited` audit event is logged. The rate check occurs after capability validation but before syscall dispatch.
 
 ### 12.7 Certification Targets
 
@@ -1029,7 +1066,7 @@ tiny-os is designed to support certification under the following safety standard
 - Health monitor and watchdog design documentation (11.4, 11.5)
 - Structured shutdown sequence and post-mortem diagnostic format (11.3)
 - Configuration validation with compile-time assertions (10.2)
-- Security hardening: W^X memory policy, Spectre mitigations, DMA constraints, capability-based access control, cryptographic primitives, runtime code integrity, network firewall, audit log, JTAG lockdown (12.6)
+- Security hardening: W^X memory policy, Spectre mitigations, DMA constraints, capability-based access control, cryptographic primitives, runtime code integrity, network firewall, audit log, JTAG lockdown, pointer authentication, secure memory wiping, syscall rate limiting (12.6)
 - Fault injection test results demonstrating graceful degradation (12.2)
 ---
 
@@ -1072,6 +1109,9 @@ The following table summarizes all public API functions grouped by module. All f
 | Integrity | integrity_init, integrity_verify, integrity_boot_crc |
 | Audit | audit_log, audit_dump, audit_persist_to_fs |
 | JTAG | jtag_lockdown |
+| PAC | pac_detect, pac_init, pac_is_active, pac_is_supported, pac_status |
+| Rate Limiting | check_syscall_rate |
+
 ### 13.2 Appendix B: Bare-Metal Boot Configuration
 
 To boot tiny-os on a Raspberry Pi 5, prepare an SD card with the standard Raspberry Pi firmware files and the following configuration:
@@ -1118,4 +1158,4 @@ The full context saved and restored on each context switch consists of:
 | --- | --- | --- | --- |
 | 1.0 | March 2026 | tiny-os Team | Initial specification for Raspberry Pi 5 / Cortex-A76 (evolved from simple_os Cortex-M spec) |
 | 1.1 | March 2026 | tiny-os Team | Added BCM2712 D0 stepping documentation; added 1 GB RAM variant support and auto pool sizing; updated config.txt with official bare-metal options (os_check, uart_early_init, pciex4_reset); added compatible boards (Pi 500, Pi 500+, CM5); added stepping detection at boot; updated memory map notes for constrained-RAM variants |
-| 1.2 | September 2026 | tiny-os Team | Added Phase 11 safety certification (compile-time config validation, memory pools, hooks, health monitor, budget enforcement, structured shutdown, WCET, schedulability analysis, fault injection, traceability matrix); added Phase 13 security hardening (capability-based access control, SHA-256/HMAC-SHA256, CRC32, shell authentication, network firewall, runtime code integrity, persistent audit log, JTAG lockdown); added Phase 12 extended peripherals (PWM, Serial/UART1-5, USB xHCI skeleton, Ethernet MAC skeleton, software RTC, DVFS power management, ARMv8 Crypto Extensions, SDR104 UHS-I SD card); updated driver table, syscall summary, testing methodology, and RP1 memory map |
+| 1.2 | September 2026 | tiny-os Team | Added Phase 11 safety certification (compile-time config validation, memory pools, hooks, health monitor, budget enforcement, structured shutdown, WCET, schedulability analysis, fault injection, traceability matrix); added Phase 13 security hardening (capability-based access control, SHA-256/HMAC-SHA256, CRC32, shell authentication, network firewall, runtime code integrity, persistent audit log, JTAG lockdown); added Phase 12 extended peripherals (PWM, Serial/UART1-5, USB xHCI skeleton, Ethernet MAC skeleton, software RTC, DVFS power management, ARMv8 Crypto Extensions, SDR104 UHS-I SD card); updated driver table, syscall summary, testing methodology, and RP1 memory map; added Phase 14 advanced attack hardening (ARMv8.3 pointer authentication, secure memory wiping, syscall rate limiting, RateLimited audit event) |

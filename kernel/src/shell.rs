@@ -148,6 +148,7 @@ fn dispatch(cmd: &str) {
             kprintln!("          ping <ip>, netstat, ifconfig, temp,");
             kprintln!("          firewall, integrity, audit,");
             kprintln!("          pwm, rtc, power, crypto, uart,");
+            kprintln!("          pac, security,");
             #[cfg(feature = "dynamic-load")]
             kprintln!("          exec <path>,");
             kprintln!("          faulttest, wcet, yield, svc, reboot");
@@ -554,6 +555,19 @@ fn dispatch(cmd: &str) {
         }
         "wcet" => {
             crate::wcet::dump_all();
+        }
+        "pac" => {
+            crate::pac::status();
+        }
+        "security" => {
+            kprintln!("--- Phase 14: Advanced Attack Hardening ---");
+            kprintln!("PAC:         supported={}, active={}", crate::pac::is_supported(), crate::pac::is_active());
+            kprintln!("Secure wipe: enabled={}", os_cfg::SECURE_WIPE_EN);
+            kprintln!("Rate limit:  {}/{}ms", os_cfg::SYSCALL_RATE_LIMIT, os_cfg::SYSCALL_RATE_WINDOW_MS);
+            kprintln!("--- Phase 13: Security Hardening ---");
+            kprintln!("Auth:        enabled={}", os_cfg::SHELL_AUTH_EN);
+            kprintln!("Debug lock:  enabled={}", os_cfg::DEBUG_LOCKDOWN);
+            kprintln!("Firewall:    max_rules={}", os_cfg::MAX_FIREWALL_RULES);
         }
         "" => {}
         _ => {

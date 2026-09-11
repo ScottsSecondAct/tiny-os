@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 12: Extended Peripheral Support** — complete. 5 new HAL traits (PwmDevice, SerialPort, RtcDevice, UsbHostController, CryptoEngine). 4 new RP1 BSP drivers (PWM, Serial/UART1-5, USB xHCI skeleton, Ethernet MAC skeleton). Software RTC with monotonic clock, power management via VideoCore mailbox DVFS. ARMv8 Crypto Extensions driver (AES ECB/CBC/CTR with hardware AESE/AESD instructions, software SHA-256). SDR104 UHS-I SD card upgrade with ADMA2 DMA. 7 new syscalls (SYS_UART=15 through SYS_POWER=21) with 7 capability bits (CAP_UART through CAP_POWER). Shell commands: `pwm`, `rtc`, `power`, `crypto`, `uart`. 51 host tests, all 6 build configurations pass.
+**Phase 14: Advanced Attack Hardening** — complete. Three hardening features: (1) ARMv8.3 Pointer Authentication (PAC) with PACIASP/AUTIASP return address signing, runtime detection via ID_AA64ISAR1_EL1, APIAKey initialization, SCTLR_EL1 EnIA enable (cfg-gated bsp-rpi5, Cortex-A76 only). (2) Secure memory wiping via volatile zeroing of task stack and sensitive TCB fields on task_terminate, preventing data leakage when memory is recycled. (3) Per-task syscall rate limiting with configurable throttle (1000/second default), sliding window, E_RATE_LIMIT error code, and audit logging. Shell commands: `pac`, `security`. 11 audit event types. 51 host tests, all 6 build configurations pass.
 
 ## Target Hardware
 
@@ -97,7 +97,7 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, firewall, integrity, audit, pwm, rtc, power, crypto, uart, exec [dynamic-load], faulttest, wcet, yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, firewall, integrity, audit, pwm, rtc, power, crypto, uart, pac, security, exec [dynamic-load], faulttest, wcet, yield, svc, reboot)
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
 │   │   ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE),
 │   │   │                   #   subsystem multiplexed (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C,
@@ -124,8 +124,9 @@ tiny_os/
 │   │   │   ├── crc32.rs    # CRC32 with precomputed 256-entry lookup table
 │   │   │   └── hw.rs       # ARMv8 Crypto Extensions: AES (ECB/CBC/CTR), software SHA-256
 │   │   ├── integrity.rs    # Runtime code integrity: CRC32 of .text at boot, periodic verify
-│   │   ├── audit.rs        # Audit log: 64-entry ring buffer, 10 event types, FAT32 persist
+│   │   ├── audit.rs        # Audit log: 64-entry ring buffer, 11 event types, FAT32 persist
 │   │   ├── jtag.rs         # JTAG/debug lockdown: OSLAR_EL1, GPIO 22-27 disable
+│   │   ├── pac.rs          # ARMv8.3 Pointer Authentication: PAC key init, detection, SCTLR_EL1 enable
 │   │   ├── net/            # Network stack subsystem
 │   │   │   ├── mod.rs      # Network init, RX dispatch, net_task poll loop
 │   │   │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType)
@@ -508,4 +509,17 @@ make test                     # runs test-host then test-qemu
 - [x] Shell commands: `pwm` (status), `rtc` (datetime/alarm), `power` (freq/voltage), `crypto` (detection), `uart` (port info)
 - [x] Configuration constants in `os_cfg`: MAX_SERIAL_PORTS, PWM_CHANNELS, MAX_USB_DEVICES, CRYPTO_AES_BLOCK_SIZE, RTC_EPOCH_YEAR
 - [x] Host-side tests: RTC datetime conversions (7 tests: epoch zero, roundtrip, leap year, known timestamp, boundary, days_in_month), plus existing 44 = 51 total
+- [x] All 6 BSP×feature configurations build cleanly, all 51 host tests pass
+
+### Phase 14 — Advanced Attack Hardening ✅
+
+- [x] ARMv8.3 Pointer Authentication (`kernel::pac`): runtime detection via ID_AA64ISAR1_EL1 (APA/API fields), APIAKey initialization (APIAKeyLo_EL1/APIAKeyHi_EL1 via S3_0_C2_C1_0/1), SCTLR_EL1 EnIA (bit 31) enable for PACIASP/AUTIASP return address signing
+- [x] PAC cfg-gated for `bsp-rpi5` only (Cortex-A76 supports ARMv8.3; QEMU raspi4b Cortex-A72 does not)
+- [x] Secure memory wiping in `task_terminate()`: volatile zeroing of task stack (stack_base..stack_base+stack_size) and sensitive TCB fields (sp, capabilities, syscall counters, total_run_ticks) before task goes Dormant
+- [x] Configurable via `os_cfg::SECURE_WIPE_EN` (default: enabled)
+- [x] Per-task syscall rate limiting: `syscall_count: u32` and `syscall_window_start: u64` fields in TCB, sliding window check in syscall dispatch, configurable via `os_cfg::SYSCALL_RATE_LIMIT` (1000/s) and `os_cfg::SYSCALL_RATE_WINDOW_MS` (1000ms)
+- [x] New error code `E_RATE_LIMIT` (u64::MAX - 9) returned when syscall rate exceeded
+- [x] New audit event `RateLimited` (event type 10) logged on rate limit violations
+- [x] Shell commands: `pac` (PAC status/detection), `security` (comprehensive security dashboard showing PAC, secure wipe, rate limiting, auth, debug lockdown, firewall status)
+- [x] Configuration constants in `os_cfg`: PAC_EN, SECURE_WIPE_EN, SYSCALL_RATE_LIMIT, SYSCALL_RATE_WINDOW_MS
 - [x] All 6 BSP×feature configurations build cleanly, all 51 host tests pass

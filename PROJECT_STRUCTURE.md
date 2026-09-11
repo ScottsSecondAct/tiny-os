@@ -179,6 +179,9 @@ tiny_os/
         │                   #   per-entry tick/core/task, FAT32 persistence (/audit.log)
         ├── jtag.rs         # JTAG/debug lockdown: OSLAR_EL1 debug register lock,
         │                   #   GPIO 22-27 reconfiguration on Pi 5 (safety-critical mode)
+        ├── pac.rs          # ARMv8.3 Pointer Authentication: runtime detection via
+        │                   #   ID_AA64ISAR1_EL1, APIAKey init, SCTLR_EL1 EnIA enable,
+        │                   #   cfg-gated bsp-rpi5 (Cortex-A76 only)
         ├── net/            # Network stack subsystem
         │   ├── mod.rs      # Network init, RX dispatch loop, net_task, IP/MAC config
         │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType demux)

@@ -36,6 +36,9 @@ This guide covers everything you need to write, build, and run applications on t
 │  │ Capability Check (per-task bitmask)                  │   │
 │  │  → denied? return E_PERM + audit log                │   │
 │  ├──────────────────────────────────────────────────────┤   │
+│  │ Rate Limit Check (sliding window per task)           │   │
+│  │  → exceeded? return E_RATE_LIMIT + audit log        │   │
+│  ├──────────────────────────────────────────────────────┤   │
 │  │ Syscall Dispatch (X8=nr, X0-X1=args, X0=return)     │   │
 │  │  → basic: yield, delay, write, task_id, uptime,     │   │
 │  │    exit, temp                                       │   │
@@ -245,6 +248,23 @@ if result == E_PERM {
     // Task does not have CAP_SPI — handle gracefully
 }
 ```
+
+### Handling E_RATE_LIMIT
+
+If a task exceeds the syscall rate limit (default: 1000 calls per 1000ms window), the kernel returns `E_RATE_LIMIT`. This protects the system from denial-of-service by runaway tasks.
+
+```rust
+const E_RATE_LIMIT: u64 = u64::MAX - 9;
+
+let result = syscall(1, delay_ms as u64, 0);  // SYS_DELAY
+if result == E_RATE_LIMIT {
+    // Syscall rate limit exceeded — back off and retry
+    // The task has made too many syscalls in the current window
+    for _ in 0..1000000 { core::hint::spin_loop(); }  // Brief spin delay
+}
+```
+
+Rate limiting is transparent to well-behaved applications — the default limit of 1000 syscalls per second is generous for normal operation. Applications should only encounter this if they are polling in a tight loop without delays.
 
 ---
 

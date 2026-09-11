@@ -7,6 +7,13 @@ use crate::spinlock::SpinLock;
 
 use crate::os_cfg;
 
+#[inline(always)]
+unsafe fn secure_wipe(ptr: *mut u8, len: usize) {
+    for i in 0..len {
+        core::ptr::write_volatile(ptr.add(i), 0);
+    }
+}
+
 const MAX_TASKS: usize = os_cfg::MAX_TASKS;
 const MAX_PRIO: usize = os_cfg::PRIO_LEVELS;
 const TIMESLICE_TICKS: u32 = os_cfg::TIMESLICE_TICKS;
@@ -96,6 +103,8 @@ pub struct Tcb {
     pub stack_base: usize,
     pub stack_size: usize,
     pub capabilities: u32,
+    pub syscall_count: u32,
+    pub syscall_window_start: u64,
     pub name: &'static str,
     pub next: u8,
 }
@@ -123,6 +132,8 @@ impl Tcb {
             stack_base: 0,
             stack_size: 0,
             capabilities: 0xFFFFFFFF,
+            syscall_count: 0,
+            syscall_window_start: 0,
             name: "",
             next: 0xFF,
         }
@@ -338,6 +349,8 @@ fn create_idle_task(s: &mut Scheduler, core: usize) {
         stack_base,
         stack_size: IDLE_STACK_SIZE,
         capabilities: CAP_ALL,
+        syscall_count: 0,
+        syscall_window_start: 0,
         name: match core {
             0 => "idle-0",
             1 => "idle-1",
@@ -395,6 +408,8 @@ pub fn task_create(
         stack_base,
         stack_size,
         capabilities: CAP_ALL,
+        syscall_count: 0,
+        syscall_window_start: 0,
         name,
         next: 0xFF,
     };
@@ -467,6 +482,8 @@ pub fn task_create_user(
         stack_base,
         stack_size,
         capabilities: CAP_USER_DEFAULT,
+        syscall_count: 0,
+        syscall_window_start: 0,
         name,
         next: 0xFF,
     };
@@ -493,12 +510,30 @@ pub fn task_terminate(id: u8) {
     let core = smp::core_id();
     let is_current = s.current[core] == id;
 
+    // Secure memory wiping: zero stack and sensitive TCB fields before recycling.
+    if os_cfg::SECURE_WIPE_EN {
+        let base = s.tasks[idx].stack_base;
+        let size = s.tasks[idx].stack_size;
+        if base != 0 && size != 0 {
+            unsafe { secure_wipe(base as *mut u8, size); }
+        }
+    }
+
     if s.tasks[idx].ttbr0 != 0 {
         if is_current {
             unsafe { arch::aarch64::mmu::switch_ttbr0(arch::aarch64::mmu::kernel_ttbr0()); }
         }
         unsafe { arch::aarch64::mmu::free_user_page_table(s.tasks[idx].ttbr0); }
         s.tasks[idx].ttbr0 = 0;
+    }
+
+    // Wipe sensitive TCB fields.
+    if os_cfg::SECURE_WIPE_EN {
+        s.tasks[idx].sp = 0;
+        s.tasks[idx].capabilities = 0;
+        s.tasks[idx].syscall_count = 0;
+        s.tasks[idx].syscall_window_start = 0;
+        s.tasks[idx].total_run_ticks = 0;
     }
 
     s.tasks[idx].state = TaskState::Dormant;
@@ -1114,6 +1149,27 @@ pub fn task_capabilities(task_id: u8) -> u32 {
     let caps = s.tasks[task_id as usize].capabilities;
     SCHED_LOCK.unlock(saved);
     caps
+}
+
+pub fn check_syscall_rate(current_tick: u64) -> bool {
+    if os_cfg::SYSCALL_RATE_LIMIT == 0 {
+        return true;
+    }
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+    let core = smp::core_id();
+    let id = s.current[core] as usize;
+    let window_ticks = os_cfg::SYSCALL_RATE_WINDOW_MS as u64;
+    if current_tick - s.tasks[id].syscall_window_start >= window_ticks {
+        s.tasks[id].syscall_window_start = current_tick;
+        s.tasks[id].syscall_count = 1;
+        SCHED_LOCK.unlock(saved);
+        return true;
+    }
+    s.tasks[id].syscall_count += 1;
+    let allowed = s.tasks[id].syscall_count <= os_cfg::SYSCALL_RATE_LIMIT;
+    SCHED_LOCK.unlock(saved);
+    allowed
 }
 
 pub fn active_cores() -> u8 {

@@ -36,6 +36,7 @@ pub mod crypto;
 pub mod integrity;
 pub mod audit;
 pub mod jtag;
+pub mod pac;
 pub mod power;
 pub mod rtc;
 #[cfg(feature = "dynamic-load")]
@@ -162,7 +163,7 @@ pub extern "C" fn kmain() -> ! {
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os boot (Phase 12: Extended Peripherals)");
+    kprintln!("tiny_os boot (Phase 14: Advanced Attack Hardening)");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
@@ -242,6 +243,9 @@ pub extern "C" fn kmain() -> ! {
 
     // JTAG/debug port lockdown (safety-critical mode only).
     jtag::lockdown();
+
+    // Pointer Authentication (ARMv8.3, bsp-rpi5 only).
+    pac::init();
 
     // Initialize audit log and record boot event.
     audit::log(audit::AuditEvent::Boot, "kernel start");
