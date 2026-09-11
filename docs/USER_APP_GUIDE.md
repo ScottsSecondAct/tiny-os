@@ -728,25 +728,38 @@ let elapsed = sys_uptime() - start;
 
 ## Examples
 
-### examples/temp_monitor.rs (Static)
+tiny_os ships with 12 user-space example applications in `examples/`, plus the kernel's built-in user demo task. Each is a complete static EL0 app following the patterns above.
 
-The temperature monitor is a complete production-quality static app. It demonstrates:
+### Core Examples
 
-- Periodic polling with `SYS_DELAY`
-- Hardware access via `SYS_TEMPERATURE`
-- Statistics tracking (min/max/running average)
-- Formatted multi-field output with `MaybeUninit` buffers
-- Volatile read/write to prevent compiler-generated `memcpy`
-- All data in `.user.text` section
+| App | Syscalls Used | Description |
+|-----|--------------|-------------|
+| `temp_monitor` | DELAY, WRITE, TEMPERATURE | SoC temperature polling, min/max/avg stats |
+| `sensor_gateway` | DELAY, WRITE, SPI, I2C, GPIO, FS, NET | Industrial sensor collection, SD logging, UDP telemetry |
+| `system_dashboard` | DELAY, WRITE, TASK_ID, UPTIME, TEMPERATURE | System status dashboard with periodic reports |
+| `data_logger` | DELAY, WRITE, UPTIME, FS | Periodic sensor data logging to FAT32 filesystem |
+| `echo_server` | DELAY, WRITE, NET | UDP echo server on port 7777 |
 
-### kernel/src/user_tasks.rs (Static)
+### Hardware/Peripheral Examples
 
-The user demo task is a minimal static app showing:
+| App | Syscalls Used | Description |
+|-----|--------------|-------------|
+| `led_blinker` | DELAY, WRITE, GPIO, PWM | LED blink patterns (steady, heartbeat, SOS), sim fallback |
+| `plc_motion` | DELAY, WRITE, UPTIME, GPIO, PWM | 5-state PLC motion controller, trapezoidal profile, 10ms scan |
+| `machine_vision` | DELAY, WRITE, UPTIME, TEMPERATURE, GPIO, FS, NET | 32x32 frame inspection pipeline, blob detection, pass/fail |
+| `power_monitor` | DELAY, WRITE, TEMPERATURE, POWER | DVFS frequency/voltage monitoring, thermal warnings |
+| `rtc_clock` | DELAY, WRITE, UPTIME, RTC | Real-time clock display, 60s alarms, uptime fallback |
 
-- Syscall stub pattern
-- String constants in `.user.text`
-- Startup message with task ID
-- Periodic counter with formatted decimal output
+### Security/Educational Examples
+
+| App | Syscalls Used | Description |
+|-----|--------------|-------------|
+| `crypto_signer` | DELAY, WRITE, UPTIME, FS, CRYPTO | SHA-256/XOR hash signing, signed record logging |
+| `rate_limit_demo` | YIELD, DELAY, WRITE, TASK_ID | Phase 14 syscall rate limiting educational demo |
+
+### kernel/src/user_tasks.rs (Built-in)
+
+The user demo task is a minimal static app showing the basic syscall stub pattern.
 
 ---
 

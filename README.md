@@ -107,7 +107,7 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a full annotated tree.
 tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, mailbox, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
-├── examples/   # User-space applications (EL0): temp monitor, sensor gateway
+├── examples/   # 12 user-space applications (EL0): temp monitor, sensor gateway, dashboard, data logger, echo server, LED blinker, rate limit demo, PLC motion, machine vision, crypto signer, power monitor, RTC clock
 ├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, firewall, crypto (SHA-256, HMAC, CRC32), integrity, audit, JTAG lockdown, PAC, syscall rate limiting, secure wipe, syscalls, user tasks, ELF loader, netbuf, IRQ dispatch, memory mgmt, shell
 ├── tests/      # Host unit tests (cargo test) + QEMU integration tests (boot verification)
 └── docs/       # Specifications, API reference, and developer guides

@@ -33,15 +33,19 @@ tiny_os/
 │                           #   REQ-SEC-CAP, REQ-SEC-INT, REQ-SEC-AUDIT, REQ-SEC-JTAG,
 │                           #   REQ-SEC-HEALTH)
 │
-├── examples/               # User-space applications (run at EL0 via syscalls)
-│   ├── temp_monitor/
-│   │   ├── main.rs         # Temperature monitor: reads SoC temp via SYS_TEMPERATURE
-│   │   │                   #   syscall, tracks min/max/avg, prints periodic status
-│   │   └── README.md       # Description and sample output
-│   └── sensor_gateway/
-│       ├── main.rs         # Industrial sensor gateway: collects SPI/I2C/GPIO data,
-│       │                   #   logs to SD card, forwards over UDP
-│       └── README.md       # Description, syscall usage, scheduling context
+├── examples/               # User-space applications (12 apps, run at EL0 via syscalls)
+│   ├── temp_monitor/       # SoC temperature monitor: min/max/avg tracking, 5s periodic output
+│   ├── sensor_gateway/     # Industrial sensor gateway: SPI/I2C/GPIO data, SD logging, UDP telemetry
+│   ├── system_dashboard/   # System dashboard: uptime, task ID, temperature, periodic reports
+│   ├── data_logger/        # Data logger: FS write (create/write/close), periodic sensor logging
+│   ├── echo_server/        # UDP echo server: socket/bind/recvfrom/sendto on port 7777
+│   ├── led_blinker/        # LED blinker: GPIO/PWM patterns (steady, heartbeat, SOS), sim fallback
+│   ├── rate_limit_demo/    # Rate limit demo: Phase 14 syscall rate limiting educational example
+│   ├── plc_motion/         # PLC motion controller: 5-state machine, trapezoidal motion profile
+│   ├── machine_vision/     # Machine vision inspector: 32x32 frame, blob detection, pass/fail
+│   ├── crypto_signer/      # Crypto signer: SHA-256/XOR hash, signed record logging
+│   ├── power_monitor/      # Power monitor: DVFS freq/voltage, thermal warnings >70C
+│   └── rtc_clock/          # RTC clock: real-time clock, 60s alarms, uptime-only fallback
 │
 ├── arch/                   # Architecture crate — hardware register access & HAL traits
 │   ├── Cargo.toml

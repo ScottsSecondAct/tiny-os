@@ -203,8 +203,19 @@ Zero-copy network stack with loopback device for QEMU testing, BSD-style sockets
 - [x] `SpiDevice`, `I2cDevice`, `GpioController` HAL traits with RP1 southbridge driver implementations
 - [x] RP1 SPI0 (DW_apb_ssi), I2C0 (DW_apb_i2c), GPIO (28-pin, pad control, RIO) — cfg-gated for bsp-rpi5
 - [x] Kernel peripheral manager (`periph.rs`): static driver instances, error stubs on QEMU
-- [x] User-space temperature monitor (`examples/temp_monitor/`): SoC temp via SYS_TEMPERATURE, min/max/avg stats
-- [x] User-space sensor gateway (`examples/sensor_gateway/`): SPI/I2C/GPIO data collection, SD card logging, UDP telemetry
+- [x] 12 user-space EL0 example applications in `examples/`:
+  - `temp_monitor`: SoC temp via SYS_TEMPERATURE, min/max/avg stats
+  - `sensor_gateway`: SPI/I2C/GPIO data collection, SD card logging, UDP telemetry
+  - `system_dashboard`: uptime, task ID, temperature periodic reports
+  - `data_logger`: FS write (create/write/close), periodic sensor logging
+  - `echo_server`: UDP echo server on port 7777
+  - `led_blinker`: GPIO/PWM patterns (steady, heartbeat, SOS), sim fallback
+  - `rate_limit_demo`: Phase 14 syscall rate limiting educational demo
+  - `plc_motion`: 5-state PLC motion controller, trapezoidal motion profile
+  - `machine_vision`: 32x32 frame inspection, blob detection, pass/fail classification
+  - `crypto_signer`: SHA-256/XOR hash signing, signed record logging
+  - `power_monitor`: DVFS freq/voltage monitoring, thermal warnings
+  - `rtc_clock`: real-time clock display, 60s alarms, uptime-only fallback
 - [x] Shell commands: `ping <ip>`, `netstat`, `ifconfig`, `temp`
 - [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, sensor gateway with graceful hw fallback, no faults, stable operation
 - [x] Both BSPs (QEMU and RPi5) build cleanly, all 4 BSP×feature configurations pass

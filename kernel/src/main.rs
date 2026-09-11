@@ -21,6 +21,26 @@ pub mod sched_analysis;
 mod temp_monitor;
 #[path = "../../examples/sensor_gateway/main.rs"]
 mod sensor_gateway;
+#[path = "../../examples/system_dashboard/main.rs"]
+mod system_dashboard;
+#[path = "../../examples/data_logger/main.rs"]
+mod data_logger;
+#[path = "../../examples/echo_server/main.rs"]
+mod echo_server;
+#[path = "../../examples/led_blinker/main.rs"]
+mod led_blinker;
+#[path = "../../examples/rate_limit_demo/main.rs"]
+mod rate_limit_demo;
+#[path = "../../examples/plc_motion/main.rs"]
+mod plc_motion;
+#[path = "../../examples/machine_vision/main.rs"]
+mod machine_vision;
+#[path = "../../examples/crypto_signer/main.rs"]
+mod crypto_signer;
+#[path = "../../examples/power_monitor/main.rs"]
+mod power_monitor;
+#[path = "../../examples/rtc_clock/main.rs"]
+mod rtc_clock;
 mod shell;
 pub mod periph;
 pub mod syscall;
@@ -64,11 +84,31 @@ static mut NET_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut USER_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut TEMP_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut GW_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut DASH_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut DLOG_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut ECHO_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut LED_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut RLIM_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut PLC_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut MV_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut CRYPTO_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut PWRMON_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut RTCCLK_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 #[repr(align(4096))]
 struct UserStack([u8; 16384]);
 static mut USER_STACK: UserStack = UserStack([0; 16384]);
 static mut TEMP_USER_STACK: UserStack = UserStack([0; 16384]);
 static mut GW_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut DASH_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut DLOG_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut ECHO_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut LED_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut RLIM_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut PLC_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut MV_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut CRYPTO_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut PWRMON_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut RTCCLK_USER_STACK: UserStack = UserStack([0; 16384]);
 
 // Per-secondary-core boot stacks (referenced by boot.S via SECONDARY_STACKS).
 #[repr(align(16))]
@@ -343,6 +383,136 @@ pub extern "C" fn kmain() -> ! {
         "sensor-gw", 80, Criticality::MissionCritical,
         gw_kernel_stack, gw_entry, gw_stack_top, 0, gw_ttbr0,
     ).expect("failed to create sensor gateway task");
+
+    // Create EL0 system dashboard task (examples/system_dashboard.rs).
+    let dash_entry = system_dashboard::system_dashboard_main as *const () as usize;
+    let dash_stack_base = unsafe { &raw const DASH_USER_STACK.0 as usize };
+    let dash_stack_top = dash_stack_base + 16384;
+    let dash_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, dash_stack_base, user_stack_pages)
+    };
+    let dash_kernel_stack = unsafe { &mut DASH_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "dashboard", 150, Criticality::Standard,
+        dash_kernel_stack, dash_entry, dash_stack_top, 0, dash_ttbr0,
+    ).expect("failed to create dashboard task");
+
+    // Create EL0 data logger task (examples/data_logger.rs).
+    let dlog_entry = data_logger::data_logger_main as *const () as usize;
+    let dlog_stack_base = unsafe { &raw const DLOG_USER_STACK.0 as usize };
+    let dlog_stack_top = dlog_stack_base + 16384;
+    let dlog_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, dlog_stack_base, user_stack_pages)
+    };
+    let dlog_kernel_stack = unsafe { &mut DLOG_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "data-log", 120, Criticality::Standard,
+        dlog_kernel_stack, dlog_entry, dlog_stack_top, 0, dlog_ttbr0,
+    ).expect("failed to create data logger task");
+
+    // Create EL0 echo server task (examples/echo_server.rs).
+    let echo_entry = echo_server::echo_server_main as *const () as usize;
+    let echo_stack_base = unsafe { &raw const ECHO_USER_STACK.0 as usize };
+    let echo_stack_top = echo_stack_base + 16384;
+    let echo_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, echo_stack_base, user_stack_pages)
+    };
+    let echo_kernel_stack = unsafe { &mut ECHO_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "echo-srv", 110, Criticality::Standard,
+        echo_kernel_stack, echo_entry, echo_stack_top, 0, echo_ttbr0,
+    ).expect("failed to create echo server task");
+
+    // Create EL0 LED blinker task (examples/led_blinker.rs).
+    let led_entry = led_blinker::led_blinker_main as *const () as usize;
+    let led_stack_base = unsafe { &raw const LED_USER_STACK.0 as usize };
+    let led_stack_top = led_stack_base + 16384;
+    let led_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, led_stack_base, user_stack_pages)
+    };
+    let led_kernel_stack = unsafe { &mut LED_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "led-blink", 200, Criticality::Standard,
+        led_kernel_stack, led_entry, led_stack_top, 0, led_ttbr0,
+    ).expect("failed to create LED blinker task");
+
+    // Create EL0 rate limit demo task (examples/rate_limit_demo.rs).
+    let rlim_entry = rate_limit_demo::rate_limit_demo_main as *const () as usize;
+    let rlim_stack_base = unsafe { &raw const RLIM_USER_STACK.0 as usize };
+    let rlim_stack_top = rlim_stack_base + 16384;
+    let rlim_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, rlim_stack_base, user_stack_pages)
+    };
+    let rlim_kernel_stack = unsafe { &mut RLIM_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "rate-demo", 180, Criticality::Standard,
+        rlim_kernel_stack, rlim_entry, rlim_stack_top, 0, rlim_ttbr0,
+    ).expect("failed to create rate limit demo task");
+
+    // Create EL0 PLC motion controller task (examples/plc_motion.rs).
+    let plc_entry = plc_motion::plc_motion_main as *const () as usize;
+    let plc_stack_base = unsafe { &raw const PLC_USER_STACK.0 as usize };
+    let plc_stack_top = plc_stack_base + 16384;
+    let plc_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, plc_stack_base, user_stack_pages)
+    };
+    let plc_kernel_stack = unsafe { &mut PLC_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "plc-ctrl", 60, Criticality::MissionCritical,
+        plc_kernel_stack, plc_entry, plc_stack_top, 0, plc_ttbr0,
+    ).expect("failed to create PLC motion task");
+
+    // Create EL0 machine vision inspector task (examples/machine_vision.rs).
+    let mv_entry = machine_vision::machine_vision_main as *const () as usize;
+    let mv_stack_base = unsafe { &raw const MV_USER_STACK.0 as usize };
+    let mv_stack_top = mv_stack_base + 16384;
+    let mv_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, mv_stack_base, user_stack_pages)
+    };
+    let mv_kernel_stack = unsafe { &mut MV_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "vision", 70, Criticality::MissionCritical,
+        mv_kernel_stack, mv_entry, mv_stack_top, 0, mv_ttbr0,
+    ).expect("failed to create machine vision task");
+
+    // Create EL0 crypto signer task (examples/crypto_signer.rs).
+    let crypto_entry = crypto_signer::crypto_signer_main as *const () as usize;
+    let crypto_stack_base = unsafe { &raw const CRYPTO_USER_STACK.0 as usize };
+    let crypto_stack_top = crypto_stack_base + 16384;
+    let crypto_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, crypto_stack_base, user_stack_pages)
+    };
+    let crypto_kernel_stack = unsafe { &mut CRYPTO_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "crypto-sig", 130, Criticality::Standard,
+        crypto_kernel_stack, crypto_entry, crypto_stack_top, 0, crypto_ttbr0,
+    ).expect("failed to create crypto signer task");
+
+    // Create EL0 power monitor task (examples/power_monitor.rs).
+    let pwrmon_entry = power_monitor::power_monitor_main as *const () as usize;
+    let pwrmon_stack_base = unsafe { &raw const PWRMON_USER_STACK.0 as usize };
+    let pwrmon_stack_top = pwrmon_stack_base + 16384;
+    let pwrmon_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, pwrmon_stack_base, user_stack_pages)
+    };
+    let pwrmon_kernel_stack = unsafe { &mut PWRMON_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "pwr-mon", 140, Criticality::Standard,
+        pwrmon_kernel_stack, pwrmon_entry, pwrmon_stack_top, 0, pwrmon_ttbr0,
+    ).expect("failed to create power monitor task");
+
+    // Create EL0 RTC clock task (examples/rtc_clock.rs).
+    let rtcclk_entry = rtc_clock::rtc_clock_main as *const () as usize;
+    let rtcclk_stack_base = unsafe { &raw const RTCCLK_USER_STACK.0 as usize };
+    let rtcclk_stack_top = rtcclk_stack_base + 16384;
+    let rtcclk_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, rtcclk_stack_base, user_stack_pages)
+    };
+    let rtcclk_kernel_stack = unsafe { &mut RTCCLK_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "rtc-clock", 160, Criticality::Standard,
+        rtcclk_kernel_stack, rtcclk_entry, rtcclk_stack_top, 0, rtcclk_ttbr0,
+    ).expect("failed to create RTC clock task");
 
     kprintln!("sched: {} tasks created on core 0", sched::task_count());
 

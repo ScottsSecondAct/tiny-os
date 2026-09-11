@@ -217,28 +217,28 @@ const AP_RW_EL0: u64 = 1 << 6;
 const AP_RO_EL0: u64 = 3 << 6;
 pub const PAGE_SIZE_4K: usize = 4096;
 
-const MAX_USER_TASKS: usize = 4;
-const USER_L2_POOL_SIZE: usize = 8;
-const L3_POOL_SIZE: usize = 16;
+const MAX_USER_TASKS: usize = 16;
+const USER_L2_POOL_SIZE: usize = 20;
+const L3_POOL_SIZE: usize = 32;
 const BLOCK_ATTR_MASK: u64 = 0x0070_0000_0000_0FFC;
 
-static mut USER_L0: [PageTable; MAX_USER_TASKS] = [
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-];
-static mut USER_L1: [PageTable; MAX_USER_TASKS] = [
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-];
-static mut USER_L2_POOL: [PageTable; USER_L2_POOL_SIZE] = [
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-];
+static mut USER_L0: [PageTable; MAX_USER_TASKS] = {
+    const Z: PageTable = PageTable::zero();
+    [Z; MAX_USER_TASKS]
+};
+static mut USER_L1: [PageTable; MAX_USER_TASKS] = {
+    const Z: PageTable = PageTable::zero();
+    [Z; MAX_USER_TASKS]
+};
+static mut USER_L2_POOL: [PageTable; USER_L2_POOL_SIZE] = {
+    const Z: PageTable = PageTable::zero();
+    [Z; USER_L2_POOL_SIZE]
+};
 static mut USER_L2_NEXT: usize = 0;
-static mut L3_POOL: [PageTable; L3_POOL_SIZE] = [
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-    PageTable::zero(), PageTable::zero(), PageTable::zero(), PageTable::zero(),
-];
+static mut L3_POOL: [PageTable; L3_POOL_SIZE] = {
+    const Z: PageTable = PageTable::zero();
+    [Z; L3_POOL_SIZE]
+};
 static mut L3_NEXT: usize = 0;
 static mut USER_SLOT_USED: [bool; MAX_USER_TASKS] = [false; MAX_USER_TASKS];
 static mut NEXT_ASID: u8 = 1;
