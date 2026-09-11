@@ -18,10 +18,14 @@ tiny_os/
 │   └── config.toml         # Linker: aarch64-linux-gnu-gcc, -nostartfiles,
 │                           #   -Tkernel/link.ld; default target triple
 │
-├── docs/                   # Specifications (kept as reference)
-│   └── tiny_os_specification_v1.1.md   # System specification v1.2 — includes RTOS
-│                                       #   certification: WCET, MC/DC, health monitor,
-│                                       #   watchdog, mixed-criticality, traceability
+├── docs/                   # Specifications, API reference, and developer guides
+│   ├── tiny_os_specification_v1.1.md   # System specification v1.2 — includes RTOS
+│   │                                   #   certification: WCET, MC/DC, health monitor,
+│   │                                   #   watchdog, mixed-criticality, traceability
+│   ├── API_REFERENCE.md    # Complete API reference: shell, syscalls, scheduler,
+│   │                       #   sync, filesystem, network, memory, HAL traits
+│   └── USER_APP_GUIDE.md   # Developer's guide for user-space EL0 applications:
+│                           #   syscall interface, static/dynamic deployment, constraints
 │
 ├── examples/               # User-space applications (run at EL0 via syscalls)
 │   └── temp_monitor.rs     # Temperature monitor: reads SoC temp via SYS_TEMPERATURE

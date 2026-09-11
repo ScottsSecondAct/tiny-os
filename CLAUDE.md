@@ -67,10 +67,12 @@ tiny_os/
 ├── Cargo.toml              # Workspace root (default-members exclude tests/host)
 ├── CLAUDE.md               # This file
 ├── Makefile                # Build/test wrapper: make, make test, make test-host, make test-qemu
-├── docs/                   # Specifications (markdown)
+├── docs/                   # Specifications and guides (markdown)
 │   ├── spec.md             # tiny_os system specification v1.1
 │   ├── scheduler_spec.md   # Scheduler subsystem specification
-│   └── phases.md           # Implementation phases breakdown
+│   ├── phases.md           # Implementation phases breakdown
+│   ├── API_REFERENCE.md    # Complete API reference (shell, syscalls, HAL traits)
+│   └── USER_APP_GUIDE.md   # Developer's guide for writing user-space applications
 ├── examples/               # User-space applications (run at EL0 via syscalls)
 │   └── temp_monitor.rs     # Temperature monitor: reads SoC temp via SYS_TEMPERATURE,
 │                           #   tracks min/max/avg, prints periodic status (all .user.text)

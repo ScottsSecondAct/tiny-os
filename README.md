@@ -106,8 +106,14 @@ tiny_os/
 ├── examples/   # User-space applications (EL0): temperature monitor
 ├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, syscalls, user tasks, ELF loader, netbuf, IRQ dispatch, memory mgmt, shell
 ├── tests/      # Host unit tests (cargo test) + QEMU integration tests (boot verification)
-└── docs/       # Specifications and phase breakdown
+└── docs/       # Specifications, API reference, and developer guides
 ```
+
+## Documentation
+
+- [User-Space App Guide](docs/USER_APP_GUIDE.md) — how to write, build, and run EL0 applications (syscalls, static vs dynamic loading, constraints, debugging)
+- [API Reference](docs/API_REFERENCE.md) — shell commands, syscall table, scheduler, sync primitives, filesystem, network stack, HAL traits
+- [Project Structure](PROJECT_STRUCTURE.md) — annotated source tree with every file and module
 
 ## Roadmap
 

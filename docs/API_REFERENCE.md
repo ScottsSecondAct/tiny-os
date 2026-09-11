@@ -2,6 +2,8 @@
 
 Complete reference for all kernel APIs, syscalls, shell commands, and HAL traits.
 
+> **Writing a user-space app?** See the [User-Space Application Developer's Guide](USER_APP_GUIDE.md) for a hands-on walkthrough with examples.
+
 ---
 
 ## Table of Contents
