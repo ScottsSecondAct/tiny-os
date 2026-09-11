@@ -1,4 +1,4 @@
-use crate::{kprint, kprintln, klog, mm, netbuf, sched, storage, watchdog};
+use crate::{kprint, kprintln, fs, klog, mm, netbuf, sched, storage, watchdog};
 use arch::aarch64::{emmc2, exceptions};
 use arch::aarch64::mmu;
 use arch::aarch64::smp;
@@ -8,14 +8,16 @@ use arch::uart::UartDriver;
 const BACKSPACE: u8 = 0x7F;
 
 pub fn run(uart: &mut impl UartDriver) -> ! {
-    let mut buf = [0u8; 64];
+    let mut buf = [0u8; 128];
     let mut len: usize = 0;
 
     kprintln!();
     kprint!("tiny_os> ");
 
     loop {
-        if let Some(c) = try_read_byte(uart) {
+        let mut got_input = false;
+        while let Some(c) = try_read_byte(uart) {
+            got_input = true;
             match c {
                 b'\r' | b'\n' => {
                     kprintln!();
@@ -43,8 +45,9 @@ pub fn run(uart: &mut impl UartDriver) -> ! {
             }
         }
 
-        // No input available — sleep briefly so lower-priority tasks can run.
-        sched::delay(1);
+        if !got_input {
+            sched::delay(1);
+        }
     }
 }
 
@@ -85,7 +88,9 @@ fn dispatch(cmd: &str) {
     match base {
         "help" => {
             kprintln!("commands: help, uptime, ticks, info, mem, tasks, log, health,");
-            kprintln!("          smp, sd, sdread <lba>, yield, svc, reboot");
+            kprintln!("          smp, sd, sdread <lba>, ls [path], cat <path>,");
+            kprintln!("          hexdump <path>, touch <path>, write <path> <text>,");
+            kprintln!("          yield, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
@@ -164,6 +169,131 @@ fn dispatch(cmd: &str) {
                 }
             }
         }
+        "ls" => {
+            if !fs::is_mounted() {
+                kprintln!("filesystem not mounted");
+            } else {
+                let path = if arg.is_empty() { "/" } else { arg };
+                match fs::readdir_open(path) {
+                    Ok(fd) => {
+                        loop {
+                            match fs::readdir_next(fd) {
+                                Ok(Some(entry)) => {
+                                    if entry.is_dir {
+                                        kprintln!("  <DIR>  {}", entry.name_str());
+                                    } else {
+                                        kprintln!("  {:>5}  {}", entry.size, entry.name_str());
+                                    }
+                                }
+                                Ok(None) => break,
+                                Err(e) => {
+                                    kprintln!("readdir error: {:?}", e);
+                                    break;
+                                }
+                            }
+                        }
+                        let _ = fs::readdir_close(fd);
+                    }
+                    Err(e) => kprintln!("ls: {:?}", e),
+                }
+            }
+        }
+        "cat" => {
+            if !fs::is_mounted() {
+                kprintln!("filesystem not mounted");
+            } else if arg.is_empty() {
+                kprintln!("usage: cat <path>");
+            } else {
+                match fs::open(arg, false) {
+                    Ok(fd) => {
+                        let mut buf = [0u8; 512];
+                        loop {
+                            match fs::read(fd, &mut buf) {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    for &b in &buf[..n] {
+                                        if b == 0 {
+                                            break;
+                                        }
+                                        kprint!("{}", b as char);
+                                    }
+                                }
+                                Err(e) => {
+                                    kprintln!("\nread error: {:?}", e);
+                                    break;
+                                }
+                            }
+                        }
+                        let _ = fs::close(fd);
+                    }
+                    Err(e) => kprintln!("cat: {:?}", e),
+                }
+            }
+        }
+        "hexdump" if !arg.is_empty() => {
+            if !fs::is_mounted() {
+                kprintln!("filesystem not mounted");
+            } else {
+                match fs::open(arg, false) {
+                    Ok(fd) => {
+                        let mut buf = [0u8; 512];
+                        loop {
+                            match fs::read(fd, &mut buf) {
+                                Ok(0) => break,
+                                Ok(n) => hexdump(&buf[..n]),
+                                Err(e) => {
+                                    kprintln!("\nread error: {:?}", e);
+                                    break;
+                                }
+                            }
+                        }
+                        let _ = fs::close(fd);
+                    }
+                    Err(e) => kprintln!("hexdump: {:?}", e),
+                }
+            }
+        }
+        "touch" => {
+            if !fs::is_mounted() {
+                kprintln!("filesystem not mounted");
+            } else if arg.is_empty() {
+                kprintln!("usage: touch <path>");
+            } else {
+                match fs::create(arg) {
+                    Ok(fd) => {
+                        let _ = fs::close(fd);
+                        kprintln!("created {}", arg);
+                    }
+                    Err(e) => kprintln!("touch: {:?}", e),
+                }
+            }
+        }
+        "write" => {
+            if !fs::is_mounted() {
+                kprintln!("filesystem not mounted");
+            } else {
+                // Split arg into "path text..."
+                let (path, text) = match arg.find(' ') {
+                    Some(i) => (&arg[..i], &arg[i+1..]),
+                    None => {
+                        kprintln!("usage: write <path> <text>");
+                        ("", "")
+                    }
+                };
+                if !path.is_empty() {
+                    match fs::create(path) {
+                        Ok(fd) => {
+                            match fs::write(fd, text.as_bytes()) {
+                                Ok(n) => kprintln!("wrote {} bytes to {}", n, path),
+                                Err(e) => kprintln!("write error: {:?}", e),
+                            }
+                            let _ = fs::close(fd);
+                        }
+                        Err(e) => kprintln!("write: {:?}", e),
+                    }
+                }
+            }
+        }
         "log" => {
             if arg.starts_with("level ") {
                 let level_str = arg[6..].trim();
@@ -234,17 +364,23 @@ fn parse_u64(s: &str) -> u64 {
 }
 
 fn hexdump(data: &[u8]) {
-    for row in 0..(data.len() / 16) {
+    let rows = (data.len() + 15) / 16;
+    for row in 0..rows {
         let off = row * 16;
+        let count = (data.len() - off).min(16);
         kprint!("{:04x}: ", off);
         for i in 0..16 {
-            kprint!("{:02x} ", data[off + i]);
+            if i < count {
+                kprint!("{:02x} ", data[off + i]);
+            } else {
+                kprint!("   ");
+            }
             if i == 7 {
                 kprint!(" ");
             }
         }
         kprint!(" |");
-        for i in 0..16 {
+        for i in 0..count {
             let b = data[off + i];
             if (0x20..=0x7E).contains(&b) {
                 kprint!("{}", b as char);

@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 8: Storage & DMA** — complete. SDHCI/EMMC2 SD card driver with PIO data transfer, DMA engine HAL trait, zero-copy NetBuf buffer pool (1024 buffers in 2MB non-cacheable region), BlockDevice HAL trait, MBR partition table parser, LRU write-back block cache (32 lines). Shell commands: `sd` (card info + partitions), `sdread <lba>` (hex dump sector). Built on Phase 7's SMP, Phase 3's MMU (NonCacheable memory kind), and Phase 3's contiguous page allocator. Next up: Phase 9 (Filesystem & Shell).
+**Phase 9: Filesystem & Shell** — complete. FAT32 filesystem with VFS abstraction layer, 16-entry file descriptor table, streaming directory iteration (DirCursor), LFN support, read/write/create operations. RamDisk BlockDevice (256 KB in-memory FAT32 volume) for QEMU testing. Storage layer routing between EMMC2 and RamDisk. Shell commands: `ls [path]`, `cat <path>`, `hexdump <path>`, `touch <path>`, `write <path> <text>`. Built on Phase 8's BlockDevice/block cache. Next up: Phase 10 (Networking & User Mode).
 
 ## Target Hardware
 
@@ -77,10 +77,14 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, yield, svc, reboot)
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
+│   │   ├── fs/             # Filesystem subsystem
+│   │   │   ├── mod.rs      # VFS: FsError, 16-entry fd table, open/read/write/close/readdir API
+│   │   │   └── fat32.rs    # FAT32: BPB, FAT chain, dir parsing, LFN, read/write, create
 │   │   ├── storage/        # Storage subsystem
-│   │   │   ├── mod.rs      # Emmc2Wrapper, print_mbr_info() helper
+│   │   │   ├── mod.rs      # Device routing (EMMC2/RamDisk), cached read/write, flush
+│   │   │   ├── ramdisk.rs  # RAM-backed BlockDevice (256 KB, FAT32-formatted for QEMU)
 │   │   │   ├── mbr.rs      # MBR partition table parser
 │   │   │   └── cache.rs    # LRU write-back block cache (32 lines, 512B each)
 │   │   ├── sched.rs        # SMP-aware 256-level fixed-priority scheduler: per-core current, spinlock, IPI
@@ -279,11 +283,27 @@ tiny_os/
 - [x] Verified on QEMU: boots with graceful SD card detection (QEMU uses SDHOST, not SDHCI)
 - [x] Both BSPs (QEMU and RPi5) build cleanly
 
-## Phase 8 Deliverables Checklist (complete)
+### Phase 9 — Filesystem & Shell ✅
 
-- [x] DMA engine driver (`DmaEngine` HAL trait)
-- [x] Zero-copy buffer pool (`NetBuf`)
-- [x] EMMC2 / SDIO driver
-- [x] `BlockDevice` HAL trait
-- [x] Partition table parsing (MBR)
-- [x] Block cache (LRU, write-back)
+- [x] Storage layer routing (`kernel::storage::mod`) between EMMC2 and RamDisk with static BlockCache
+- [x] RamDisk BlockDevice (`kernel::storage::ramdisk`): 256 KB `.bss` array formatted as FAT32 at init
+- [x] VFS layer (`kernel::fs::mod`): 16-entry fd table, open/read/write/close/readdir_open/readdir_next API
+- [x] FAT32 driver (`kernel::fs::fat32`): BPB parsing, FAT chain traversal, directory parsing with LFN support
+- [x] Path resolution: case-insensitive name matching, nested directory support
+- [x] File read: sequential read with cluster chain caching, sector-by-sector through block cache
+- [x] File write: cluster chain extension via alloc_cluster, read-modify-write for partial sectors
+- [x] File create: 8.3 short name generation, free directory entry scan, cluster allocation
+- [x] Directory entry size update on close for writable files
+- [x] PL011 UART FIFO enabled for reliable serial RX
+- [x] Shell FIFO drain: burst-read all available UART bytes before yielding
+- [x] Shell commands: `ls [path]`, `cat <path>`, `hexdump <path>`, `touch <path>`, `write <path> <text>`
+- [x] SMP timeout: hardware counter-based 3-second deadline for secondary core wakeup
+- [x] Verified on QEMU: ramdisk mount, ls/cat/hexdump/touch/write all functional, all 4 cores online
+- [x] Both BSPs (QEMU and RPi5) build cleanly
+
+## Phase 10 Deliverables Checklist (next)
+
+- [ ] Network driver (`NetDevice` HAL trait)
+- [ ] TCP/IP stack (minimal)
+- [ ] User mode (`UserContext` HAL trait, EL0 tasks)
+- [ ] System call interface

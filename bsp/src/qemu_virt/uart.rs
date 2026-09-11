@@ -9,6 +9,7 @@ use core::fmt;
 
 const DR: usize = 0x000;
 const FR: usize = 0x018;
+const LCRH: usize = 0x02C;
 
 const FR_TXFF: u32 = 1 << 5;
 
@@ -45,7 +46,10 @@ impl Pl011Uart {
 }
 
 impl UartDriver for Pl011Uart {
-    fn init(&mut self) {}
+    fn init(&mut self) {
+        let lcrh = Self::read(LCRH);
+        Self::write(LCRH, lcrh | (1 << 4));
+    }
 
     fn write_byte(&mut self, byte: u8) {
         while Self::read(FR) & FR_TXFF != 0 {}

@@ -13,6 +13,7 @@ pub mod netbuf;
 pub mod sched;
 mod shell;
 pub mod spinlock;
+pub mod fs;
 pub mod storage;
 pub mod sync;
 pub mod watchdog;
@@ -129,7 +130,7 @@ pub extern "C" fn kmain() -> ! {
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os Phase 8 boot (Storage & DMA)");
+    kprintln!("tiny_os Phase 9 boot (Filesystem & Shell)");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
@@ -158,7 +159,7 @@ pub extern "C" fn kmain() -> ! {
     let (nb_total, nb_free) = netbuf::pool_stats();
     kprintln!("netbuf: {} buffers ({} free)", nb_total, nb_free);
 
-    // Initialize SD card via EMMC2 SDHCI controller.
+    // Try EMMC2 SDHCI first; fall back to ramdisk for QEMU.
     match emmc2::init(bsp::EMMC2_BASE) {
         Ok(()) => {
             if let Some((sdhc, blocks)) = emmc2::card_info() {
@@ -169,13 +170,24 @@ pub extern "C" fn kmain() -> ! {
                     blocks,
                     size_mb
                 );
-
-                // Read and parse MBR.
-                storage::print_mbr_info();
             }
         }
         Err(_) => {
-            kprintln!("sd: no card detected (EMMC2 at {:#x})", bsp::EMMC2_BASE);
+            kprintln!("sd: no card detected, using ramdisk");
+        }
+    }
+
+    // Initialize storage layer (picks EMMC2 or ramdisk).
+    storage::init();
+    storage::print_mbr_info();
+
+    // Mount FAT32 filesystem.
+    match fs::init() {
+        Ok(()) => {
+            kprintln!("fs: FAT32 mounted, {} clusters", fs::cluster_count());
+        }
+        Err(_) => {
+            kprintln!("fs: no FAT32 partition found");
         }
     }
 
@@ -221,11 +233,20 @@ pub extern "C" fn kmain() -> ! {
         smp::start_core(core_id);
     }
 
-    // Wait for all secondary cores to come online.
+    // Wait for all secondary cores to come online (with timeout for QEMU).
+    let smp_deadline = timer::read_counter() + timer::frequency() * 3;
     while CORES_ONLINE.load(Ordering::Acquire) < (NUM_SECONDARY_CORES + 1) as u8 {
+        if timer::read_counter() > smp_deadline {
+            kprintln!("smp: timeout ({} of {} cores)",
+                CORES_ONLINE.load(Ordering::Relaxed), NUM_SECONDARY_CORES + 1);
+            break;
+        }
         core::hint::spin_loop();
     }
-    kprintln!("smp: all {} cores online", CORES_ONLINE.load(Ordering::Relaxed));
+    let online = CORES_ONLINE.load(Ordering::Relaxed) as usize;
+    if online >= NUM_SECONDARY_CORES + 1 {
+        kprintln!("smp: all {} cores online", online);
+    }
 
     kprintln!("type 'help' for commands");
 

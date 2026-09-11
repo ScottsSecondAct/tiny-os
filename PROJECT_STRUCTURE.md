@@ -85,11 +85,19 @@ tiny_os/
         ├── exceptions.rs   # IRQ dispatch (GIC acknowledge/EOI), IPI handler,
         │                   #   sync exception (SVC, ESR decoding), unhandled trap
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
-        │                   #   tasks, smp, log, health, yield, svc, sd, sdread, reboot
+        │                   #   tasks, smp, log, health, sd, sdread, ls, cat, hexdump,
+        │                   #   touch, write, yield, svc, reboot
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
+        ├── fs/             # Filesystem subsystem
+        │   ├── mod.rs      # VFS layer: fd table (16 entries), open/read/write/close,
+        │   │               #   readdir API, FsError enum, DirEntry type
+        │   └── fat32.rs    # FAT32 driver: BPB parsing, FAT chain traversal, directory
+        │                   #   entry parsing (8.3 + LFN), file read/write/create
         ├── storage/        # Storage subsystem
-        │   ├── mod.rs      # Emmc2Wrapper BlockDevice impl, MBR info printer
+        │   ├── mod.rs      # ActiveDevice routing (EMMC2/RamDisk), static BlockCache,
+        │   │               #   cached_read/write/flush, find_fat32_partition
+        │   ├── ramdisk.rs  # 256KB in-memory FAT32 volume for QEMU testing
         │   ├── mbr.rs      # MBR partition table parser (4 entries, 0xAA55 sig)
         │   └── cache.rs    # LRU write-back block cache (32 lines × 512B)
         ├── spinlock.rs     # Ticket spinlock with IRQ save/restore for SMP

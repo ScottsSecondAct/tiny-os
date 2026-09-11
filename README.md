@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 8 complete** — Storage & DMA: SDHCI/EMMC2 SD card driver with PIO data transfer, DMA engine HAL trait, zero-copy NetBuf buffer pool (1024 buffers in 2MB non-cacheable memory), BlockDevice HAL trait, MBR partition table parsing, LRU write-back block cache (32 lines). Shell commands: `sd` (card info + partitions), `sdread <lba>` (hex dump). Built on Phase 7's SMP (4 cores), Phase 6's logging/watchdog/health, Phase 5's sync primitives, Phase 4's preemptive 256-level scheduler, Phase 3's MMU (W^X + NonCacheable), and Phase 2's GIC-400 + ARM Generic Timer.
+**Phase 9 complete** — Filesystem & Shell: FAT32 filesystem with VFS abstraction (16-entry fd table, streaming readdir, LFN support), file read/write/create, RamDisk BlockDevice (256 KB in-memory FAT32 for QEMU), storage layer routing (EMMC2 or RamDisk). Shell commands: `ls`, `cat`, `hexdump`, `touch`, `write`. Built on Phase 8's block cache and BlockDevice, Phase 7's SMP (4 cores), and earlier phases (scheduler, sync, MMU, GIC, timer).
 
 ## Target Hardware
 
@@ -90,7 +90,7 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a full annotated tree.
 tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
-├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, netbuf, IRQ dispatch, memory mgmt, shell
+├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), netbuf, IRQ dispatch, memory mgmt, shell
 └── docs/       # Specifications and phase breakdown
 ```
 
