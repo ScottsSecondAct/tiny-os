@@ -104,6 +104,14 @@ pub const MAX_SOCKETS: usize = 8;
 pub const MAX_TCP_CONNS: usize = 4;
 pub const MAX_ARP_ENTRIES: usize = 16;
 
+// --- Security ---
+
+pub const MAX_FIREWALL_RULES: usize = 16;
+pub const SHELL_AUTH_EN: bool = if SAFETY_CRITICAL { true } else { false };
+pub const SHELL_AUTH_MAX_ATTEMPTS: u8 = 3;
+pub const SHELL_AUTH_LOCKOUT_MS: u32 = 30_000;
+pub const DEBUG_LOCKDOWN: bool = if SAFETY_CRITICAL { true } else { false };
+
 // --- Netbuf ---
 
 pub const NETBUF_SLOT_SIZE: usize = 2048;

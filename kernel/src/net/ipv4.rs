@@ -93,6 +93,11 @@ pub fn process_rx(buf_idx: u16) {
         return;
     }
 
+    if !super::firewall::check_packet(ip_data, &hdr) {
+        netbuf::free(buf);
+        return;
+    }
+
     match hdr.protocol {
         PROTO_ICMP => super::icmp::process_rx(buf_idx, &hdr),
         PROTO_UDP => super::udp::process_rx(buf_idx, &hdr),

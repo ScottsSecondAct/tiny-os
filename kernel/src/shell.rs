@@ -1,4 +1,4 @@
-use crate::{kprint, kprintln, fs, klog, mm, net, netbuf, sched, storage, watchdog};
+use crate::{audit, integrity, kprint, kprintln, fs, klog, mm, net, netbuf, os_cfg, sched, storage, watchdog};
 use arch::aarch64::{emmc2, exceptions, mailbox};
 use arch::aarch64::mmu;
 use arch::aarch64::smp;
@@ -7,9 +7,64 @@ use arch::uart::UartDriver;
 
 const BACKSPACE: u8 = 0x7F;
 
+const AUTH_HASH: [u8; 32] = crate::crypto::sha256::const_hash(b"tiny_os");
+
+fn authenticate(uart: &mut impl UartDriver) -> bool {
+    if !os_cfg::SHELL_AUTH_EN {
+        return true;
+    }
+    let mut attempts: u8 = 0;
+    loop {
+        kprint!("password: ");
+        let mut pw = [0u8; 64];
+        let mut pw_len: usize = 0;
+        loop {
+            if let Some(c) = try_read_byte(uart) {
+                match c {
+                    b'\r' | b'\n' => {
+                        kprintln!();
+                        break;
+                    }
+                    BACKSPACE | 0x08 => {
+                        if pw_len > 0 {
+                            pw_len -= 1;
+                            kprint!("\x08 \x08");
+                        }
+                    }
+                    0x20..=0x7E => {
+                        if pw_len < pw.len() {
+                            pw[pw_len] = c;
+                            pw_len += 1;
+                            kprint!("*");
+                        }
+                    }
+                    _ => {}
+                }
+            } else {
+                sched::delay(1);
+            }
+        }
+        let hash = crate::crypto::sha256::hash(&pw[..pw_len]);
+        if crate::crypto::hmac::constant_time_eq_pub(&hash, &AUTH_HASH) {
+            audit::log(audit::AuditEvent::AuthOk, "shell");
+            return true;
+        }
+        attempts += 1;
+        audit::log(audit::AuditEvent::AuthFail, "shell");
+        kprintln!("authentication failed ({}/{})", attempts, os_cfg::SHELL_AUTH_MAX_ATTEMPTS);
+        if attempts >= os_cfg::SHELL_AUTH_MAX_ATTEMPTS {
+            kprintln!("locked out for {}ms", os_cfg::SHELL_AUTH_LOCKOUT_MS);
+            sched::delay(os_cfg::SHELL_AUTH_LOCKOUT_MS);
+            attempts = 0;
+        }
+    }
+}
+
 pub fn run(uart: &mut impl UartDriver) -> ! {
     let mut buf = [0u8; 128];
     let mut len: usize = 0;
+
+    authenticate(uart);
 
     kprintln!();
     kprint!("tiny_os> ");
@@ -91,6 +146,7 @@ fn dispatch(cmd: &str) {
             kprintln!("          smp, sd, sdread <lba>, ls [path], cat <path>,");
             kprintln!("          hexdump <path>, touch <path>, write <path> <text>,");
             kprintln!("          ping <ip>, netstat, ifconfig, temp,");
+            kprintln!("          firewall, integrity, audit,");
             #[cfg(feature = "dynamic-load")]
             kprintln!("          exec <path>,");
             kprintln!("          faulttest, wcet, yield, svc, reboot");
@@ -391,6 +447,41 @@ fn dispatch(cmd: &str) {
                     Ok(tid) => kprintln!("started task {}", tid),
                     Err(e) => kprintln!("exec failed: {:?}", e),
                 }
+            }
+        }
+        "firewall" => {
+            use crate::net::firewall;
+            let enabled = firewall::is_enabled();
+            let count = firewall::rule_count();
+            let (passed, dropped) = firewall::stats();
+            kprintln!("firewall: {}", if enabled { "ENABLED (default-deny)" } else { "disabled" });
+            kprintln!("rules:    {}/{}", count, os_cfg::MAX_FIREWALL_RULES);
+            kprintln!("passed:   {}", passed);
+            kprintln!("dropped:  {}", dropped);
+            for i in 0..count {
+                if let Some(rule) = firewall::get_rule(i) {
+                    if rule.active {
+                        kprintln!("  [{}] {}/{} port {} {}",
+                            i, rule.src_ip, rule.src_mask, rule.dst_port, rule.protocol.as_str());
+                    }
+                }
+            }
+        }
+        "integrity" => {
+            let ok = integrity::verify();
+            kprintln!("code integrity: {}", if ok { "OK" } else { "FAILED" });
+            kprintln!("  boot CRC32:  {:#010x}", integrity::boot_crc());
+            kprintln!("  .text size:  {} bytes", integrity::text_size());
+            kprintln!("  checks run:  {}", integrity::check_count());
+            kprintln!("  last check:  tick {}", integrity::last_check_tick());
+        }
+        "audit" => {
+            if arg == "persist" {
+                audit::persist_to_fs();
+                kprintln!("audit log persisted to /audit.log");
+            } else {
+                let count = if arg.is_empty() { 20 } else { arg.parse::<usize>().unwrap_or(20) };
+                audit::dump(count);
             }
         }
         "yield" => {

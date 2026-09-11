@@ -406,12 +406,42 @@ fn dispatch_gpio(op: u64, a1: u64, a2: u64, _a3: u64) -> u64 {
     }
 }
 
+fn cap_for_syscall(nr: u64) -> u32 {
+    match nr {
+        SYS_YIELD => sched::CAP_YIELD,
+        SYS_DELAY => sched::CAP_DELAY,
+        SYS_WRITE => sched::CAP_WRITE,
+        SYS_TASK_ID => sched::CAP_TASKID,
+        SYS_UPTIME => sched::CAP_UPTIME,
+        SYS_EXIT => sched::CAP_EXIT,
+        SYS_TEMPERATURE => sched::CAP_TEMP,
+        SYS_FS => sched::CAP_FS,
+        SYS_NET => sched::CAP_NET,
+        SYS_SPI => sched::CAP_SPI,
+        SYS_I2C => sched::CAP_I2C,
+        SYS_GPIO => sched::CAP_GPIO,
+        _ => 0,
+    }
+}
+
 pub fn dispatch(tf: &mut TrapFrame) {
     let syscall_nr = tf.regs[8];
     let a0 = tf.regs[0];
     let a1 = tf.regs[1];
     let a2 = tf.regs[2];
     let a3 = tf.regs[3];
+
+    let required_cap = cap_for_syscall(syscall_nr);
+    if required_cap != 0 && !sched::task_has_capability(required_cap) {
+        crate::audit::log(crate::audit::AuditEvent::CapabilityDenied,
+            match syscall_nr {
+                SYS_FS => "FS", SYS_NET => "NET", SYS_SPI => "SPI",
+                SYS_I2C => "I2C", SYS_GPIO => "GPIO",
+                _ => "syscall",
+            });
+        tf.regs[0] = E_PERM;
+        return;
+    }
 
     let result: u64 = match syscall_nr {
         SYS_YIELD => {
@@ -451,7 +481,6 @@ pub fn dispatch(tf: &mut TrapFrame) {
                 None => u64::MAX,
             }
         }
-        // Subsystem multiplexed syscalls: a0=operation, a1-a3=args
         SYS_FS => dispatch_fs(a0, a1, a2, a3),
         SYS_NET => dispatch_net(a0, a1, a2, a3),
         SYS_SPI => dispatch_spi(a0, a1, a2, a3),

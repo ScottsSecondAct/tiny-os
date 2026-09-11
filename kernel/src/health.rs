@@ -1,4 +1,4 @@
-use crate::{hooks, klog_info, klog_warn, os_cfg, sched, watchdog};
+use crate::{audit, hooks, integrity, klog_info, klog_warn, os_cfg, sched, watchdog};
 use crate::mm::pool;
 
 const HEALTH_INTERVAL_MS: u32 = os_cfg::HEALTH_CHECK_INTERVAL_MS;
@@ -13,6 +13,7 @@ pub fn health_task(_arg: usize) -> ! {
         check_mutex_ownership();
         check_tick_monotonicity();
         check_pool_accounting();
+        check_code_integrity();
         sched::delay(HEALTH_INTERVAL_MS);
     }
 }
@@ -88,5 +89,15 @@ fn check_pool_accounting() {
                 hooks::os_hook_health_check_failed("pool_accounting");
             }
         }
+    }
+}
+
+fn check_code_integrity() {
+    if integrity::verify() {
+        audit::log(audit::AuditEvent::IntegrityOk, ".text CRC ok");
+    } else {
+        klog_warn!("health", "CODE INTEGRITY FAILURE — .text CRC mismatch!");
+        audit::log(audit::AuditEvent::IntegrityFail, ".text CRC mismatch");
+        hooks::os_hook_health_check_failed("code_integrity");
     }
 }

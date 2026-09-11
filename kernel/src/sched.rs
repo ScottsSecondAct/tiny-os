@@ -51,6 +51,22 @@ impl Criticality {
 
 const STACK_CANARY: u8 = 0xAA;
 
+pub const CAP_YIELD: u32    = 1 << 0;
+pub const CAP_DELAY: u32    = 1 << 1;
+pub const CAP_WRITE: u32    = 1 << 2;
+pub const CAP_TASKID: u32   = 1 << 3;
+pub const CAP_UPTIME: u32   = 1 << 4;
+pub const CAP_EXIT: u32     = 1 << 5;
+pub const CAP_TEMP: u32     = 1 << 6;
+pub const CAP_FS: u32       = 1 << 10;
+pub const CAP_NET: u32      = 1 << 11;
+pub const CAP_SPI: u32      = 1 << 12;
+pub const CAP_I2C: u32      = 1 << 13;
+pub const CAP_GPIO: u32     = 1 << 14;
+pub const CAP_ALL: u32      = 0xFFFFFFFF;
+pub const CAP_USER_DEFAULT: u32 = CAP_YIELD | CAP_DELAY | CAP_WRITE | CAP_TASKID
+    | CAP_UPTIME | CAP_EXIT | CAP_TEMP | CAP_FS | CAP_NET;
+
 #[repr(C)]
 pub struct Tcb {
     pub sp: u64,
@@ -72,6 +88,7 @@ pub struct Tcb {
     pub ttbr0: u64,
     pub stack_base: usize,
     pub stack_size: usize,
+    pub capabilities: u32,
     pub name: &'static str,
     pub next: u8,
 }
@@ -98,6 +115,7 @@ impl Tcb {
             ttbr0: 0,
             stack_base: 0,
             stack_size: 0,
+            capabilities: 0xFFFFFFFF,
             name: "",
             next: 0xFF,
         }
@@ -312,6 +330,7 @@ fn create_idle_task(s: &mut Scheduler, core: usize) {
         ttbr0: 0,
         stack_base,
         stack_size: IDLE_STACK_SIZE,
+        capabilities: CAP_ALL,
         name: match core {
             0 => "idle-0",
             1 => "idle-1",
@@ -368,6 +387,7 @@ pub fn task_create(
         ttbr0: 0,
         stack_base,
         stack_size,
+        capabilities: CAP_ALL,
         name,
         next: 0xFF,
     };
@@ -439,6 +459,7 @@ pub fn task_create_user(
         ttbr0,
         stack_base,
         stack_size,
+        capabilities: CAP_USER_DEFAULT,
         name,
         next: 0xFF,
     };
@@ -1068,6 +1089,24 @@ pub fn task_count() -> u8 {
 pub fn current_task_id() -> u8 {
     let core = smp::core_id();
     sched().current[core]
+}
+
+pub fn task_has_capability(cap: u32) -> bool {
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+    let core = smp::core_id();
+    let id = s.current[core] as usize;
+    let result = (s.tasks[id].capabilities & cap) != 0;
+    SCHED_LOCK.unlock(saved);
+    result
+}
+
+pub fn task_capabilities(task_id: u8) -> u32 {
+    let saved = SCHED_LOCK.lock();
+    let s = sched();
+    let caps = s.tasks[task_id as usize].capabilities;
+    SCHED_LOCK.unlock(saved);
+    caps
 }
 
 pub fn active_cores() -> u8 {

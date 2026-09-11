@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 11: Safety Certification** — complete. Centralized `os_cfg` module with 14 compile-time assertions. `safety-critical` Cargo feature flag: disables heap (pool-only allocation), enforces budget monitoring. Fixed-size memory pool allocator (O(1) alloc/free, up to 16 pools). 14 hook functions with default behaviors (idle, stack_overflow, data_abort, hard_fault, assert, task_create, task_switch, budget_overrun, deadline_miss, task_terminated, watchdog_expired, health_check_failed, shutdown, safety_critical_lost). Enhanced health monitor with 7 checks (stacks, CPU, watchdog, ready queue integrity, mutex ownership, tick monotonicity, pool accounting). Budget enforcement with task suspension on overrun and period-based replenishment. Structured shutdown with diagnostic register save. Criticality mode switch (suspend/restore lower-priority tasks). WCET measurement harness via PMU cycle counter. RMA + RTA schedulability analysis. Fault injection test suite (8 tests). Requirements traceability matrix (56 requirements). Shell commands: `faulttest`, `wcet`. Next up: Phase 12 (Extended Peripheral Support).
+**Phase 13: Security Hardening** — complete. Allowlist-based network firewall (default-deny when enabled, 16-rule table, per-packet src IP/mask + dst port + protocol matching). SHA-256 (FIPS 180-4, runtime + const fn) and HMAC-SHA256 (RFC 2104, constant-time comparison). CRC32 with precomputed lookup table. Shell authentication with SHA-256 password hash at compile time, 3-attempt lockout, cfg-gated via `SHELL_AUTH_EN`. Per-task syscall capability bitmask (`capabilities: u32` in TCB, `CAP_ALL` for kernel, restricted `CAP_USER_DEFAULT` for user tasks excluding SPI/I2C/GPIO). Runtime code integrity verification (CRC32 of .text section at boot, periodic re-check by health monitor). Persistent audit log (64-entry ring buffer, 10 event types, FAT32 persistence). JTAG/debug lockdown (OSLAR_EL1, GPIO reconfiguration in safety-critical mode). Health monitor extended with code integrity check (8 checks total). Shell commands: `firewall`, `integrity`, `audit`. 44 host tests, all 6 build configurations pass.
 
 ## Target Hardware
 
@@ -92,7 +92,7 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, exec [dynamic-load], yield, svc, reboot)
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, firewall, integrity, audit, exec [dynamic-load], faulttest, wcet, yield, svc, reboot)
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
 │   │   ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE) and
 │   │   │                   #   subsystem multiplexed (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C,
@@ -109,6 +109,14 @@ tiny_os/
 │   │   ├── wcet.rs         # WCET measurement harness: PMU cycle counter, min/max/avg tracking
 │   │   ├── sched_analysis.rs # RMA utilization check + Response-Time Analysis with PIP blocking
 │   │   ├── fault_inject.rs # Fault injection test suite: 8 tests for safety certification
+│   │   ├── crypto/         # Cryptographic primitives subsystem
+│   │   │   ├── mod.rs      # Module declarations (sha256, hmac, crc32)
+│   │   │   ├── sha256.rs   # SHA-256 (FIPS 180-4): runtime hash + const fn for compile-time
+│   │   │   ├── hmac.rs     # HMAC-SHA256 (RFC 2104): constant-time comparison
+│   │   │   └── crc32.rs    # CRC32 with precomputed 256-entry lookup table
+│   │   ├── integrity.rs    # Runtime code integrity: CRC32 of .text at boot, periodic verify
+│   │   ├── audit.rs        # Audit log: 64-entry ring buffer, 10 event types, FAT32 persist
+│   │   ├── jtag.rs         # JTAG/debug lockdown: OSLAR_EL1, GPIO 22-27 disable
 │   │   ├── net/            # Network stack subsystem
 │   │   │   ├── mod.rs      # Network init, RX dispatch, net_task poll loop
 │   │   │   ├── ethernet.rs # Ethernet frame parse/build (14-byte header, EtherType)
@@ -118,7 +126,8 @@ tiny_os/
 │   │   │   ├── udp.rs      # UDP parse/build (8-byte header), port table
 │   │   │   ├── tcp.rs      # Minimal TCP state machine (client SYN/ACK/FIN, 4 connections)
 │   │   │   ├── socket.rs   # BSD socket API: socket/bind/connect/sendto/recvfrom/close
-│   │   │   └── loopback.rs # Loopback NetDevice for QEMU (swaps src/dst, ICMP req→reply)
+│   │   │   ├── loopback.rs # Loopback NetDevice for QEMU (swaps src/dst, ICMP req→reply)
+│   │   │   └── firewall.rs # Allowlist firewall: 16-rule table, default-deny, per-packet filter
 │   │   ├── fs/             # Filesystem subsystem
 │   │   │   ├── mod.rs      # VFS: FsError, 16-entry fd table, open/read/write/close/readdir API
 │   │   │   └── fat32.rs    # FAT32: BPB, FAT chain, dir parsing, LFN, read/write, create
@@ -202,9 +211,11 @@ tiny_os/
     │       ├── lib.rs      # Crate root (declares test modules)
     │       ├── ipv4.rs     # IPv4 checksum + header parsing tests (12 tests)
     │       ├── ethernet.rs # Ethernet frame parsing tests (7 tests)
-    │       └── mbr.rs      # MBR partition table parsing tests (7 tests)
+    │       ├── mbr.rs      # MBR partition table parsing tests (7 tests)
+    │       ├── sha256.rs   # SHA-256, HMAC-SHA256 tests (11 tests, incl. RFC 4231)
+    │       └── crc32.rs    # CRC32 tests (6 tests, incl. check value 0xCBF43926)
     └── qemu/
-        └── run_tests.ps1   # QEMU integration test runner (13 boot verification checks)
+        └── run_tests.ps1   # QEMU integration test runner (15 boot verification checks)
 ```
 
 ## Scheduler Design (for reference in Phase 4+)
@@ -232,7 +243,7 @@ tiny_os/
 
 Two-tier test infrastructure accommodates the bare-metal constraint (the workspace default target is `aarch64-unknown-none`, which has no `std`).
 
-### Host-side unit tests (28 tests)
+### Host-side unit tests (44 tests)
 
 Pure-logic algorithms (checksums, parsers) re-implemented in `tests/host/` and tested natively with `cargo test`. The host-tests crate requires an explicit `--target` override because the workspace default target is bare-metal.
 
@@ -240,7 +251,7 @@ Pure-logic algorithms (checksums, parsers) re-implemented in `tests/host/` and t
 make test-host                # or: cargo test -p host-tests --target x86_64-pc-windows-msvc
 ```
 
-### QEMU integration tests (13 checks)
+### QEMU integration tests (15 checks)
 
 Boots the kernel on QEMU `raspi4b`, captures serial output, and verifies expected patterns (kernel banner, MMU, timer, scheduler, SMP cores, network, filesystem, user mode, shell prompt, no panic).
 
@@ -439,3 +450,21 @@ make test                     # runs test-host then test-qemu
 - [x] Requirements traceability matrix: 56 requirements in docs/traceability.csv (REQ-CFG, REQ-POOL, REQ-SAFE, REQ-HOOK, REQ-HEALTH, REQ-SHUTDOWN, REQ-CRIT, REQ-WCET, REQ-BUDGET, REQ-SCHED)
 - [x] Shell commands: `faulttest` (run fault injection suite), `wcet` (dump WCET measurements)
 - [x] All 6 BSP×feature configurations build cleanly, all 28 host tests pass
+
+### Phase 13 — Security Hardening ✅
+
+- [x] Allowlist-based network firewall (`kernel::net::firewall`): 16-rule table, default-deny when enabled, per-packet source IP/mask + destination port + protocol matching, atomic pass/drop counters
+- [x] SHA-256 (FIPS 180-4) in `kernel::crypto::sha256`: runtime `hash()` and `Sha256` init/update/finalize, plus `const fn const_hash()` for compile-time password hashing
+- [x] HMAC-SHA256 (RFC 2104) in `kernel::crypto::hmac`: `hmac_sha256()`, `verify()` with constant-time comparison to prevent timing attacks
+- [x] CRC32 in `kernel::crypto::crc32`: precomputed 256-entry lookup table, `crc32()` and incremental `crc32_update()`
+- [x] Shell authentication (`shell.rs`): SHA-256 password hash verified at compile time, 3-attempt lockout with 30s delay, cfg-gated via `os_cfg::SHELL_AUTH_EN` (auto-enabled in safety-critical mode)
+- [x] Per-task syscall capability bitmask: `capabilities: u32` in TCB, 12 capability bits (CAP_YIELD through CAP_GPIO), `CAP_ALL` for kernel tasks, restricted `CAP_USER_DEFAULT` (excludes SPI/I2C/GPIO) for user tasks
+- [x] Capability enforcement in syscall dispatch: `cap_for_syscall()` maps syscall number to required capability bit, `task_has_capability()` check before dispatch, `E_PERM` on denial with audit log
+- [x] Runtime code integrity (`kernel::integrity`): CRC32 of `.text` section (from `_start` to `__data_start`) computed at boot, periodic re-verification by health monitor
+- [x] Persistent audit log (`kernel::audit`): 64-entry ring buffer, 10 event types (Boot, Shutdown, AuthOk/Fail, FirewallDrop, CapabilityDenied, IntegrityOk/Fail, TaskCreated/Terminated), per-entry tick/core/task, `persist_to_fs()` writes to FAT32 `/audit.log`
+- [x] Health monitor extended with code integrity check (8 checks total: stacks, CPU, watchdog, ready queue, mutex ownership, tick monotonicity, pool accounting, code integrity)
+- [x] JTAG/debug lockdown (`kernel::jtag`): OSLAR_EL1 debug register lock, GPIO 22-27 reconfigured to input+pull-down on Pi 5 in safety-critical mode
+- [x] Security configuration constants in `os_cfg`: MAX_FIREWALL_RULES, SHELL_AUTH_EN, SHELL_AUTH_MAX_ATTEMPTS, SHELL_AUTH_LOCKOUT_MS, DEBUG_LOCKDOWN
+- [x] Shell commands: `firewall` (status, rules, counters), `integrity` (CRC32 status, check count), `audit [N]` / `audit persist` (view/persist log)
+- [x] Host-side tests: SHA-256 (6 tests incl. NIST vectors), HMAC-SHA256 (4 tests incl. RFC 4231), CRC32 (6 tests incl. check value), plus existing 28 = 44 total
+- [x] All 6 BSP×feature configurations build cleanly, all 44 host tests pass

@@ -81,6 +81,8 @@ $tests = @(
     @{ Name = "Network loopback";       Pattern = "loopback|net:" }
     @{ Name = "Filesystem mounted";     Pattern = "fat32|ramdisk|FAT32|mount" }
     @{ Name = "User task at EL0";       Pattern = "\[user\]|EL0|user task" }
+    @{ Name = "Code integrity init";    Pattern = "integrity.*CRC32" }
+    @{ Name = "Audit log init";         Pattern = "audit.*ring buffer" }
     @{ Name = "Shell prompt";           Pattern = "tiny_os>" }
     @{ Name = "No kernel panic";        Pattern = "!panic|!PANIC" }
 )

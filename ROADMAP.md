@@ -1,6 +1,6 @@
 # Roadmap
 
-tiny_os is developed in 12 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
+tiny_os is developed in 13 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
 
 ---
 
@@ -322,6 +322,72 @@ Complete hardware coverage for the remaining Pi 5 peripherals most relevant to R
 - [ ] Host-side unit tests for protocol parsing (USB descriptors, Ethernet frames, crypto vectors)
 - [ ] QEMU integration tests for new syscall numbers (E_NOSYS on unimplemented subsystems)
 - [ ] Both BSPs build cleanly across all feature flag combinations
+
+---
+
+## Phase 13 — Security Hardening
+
+Harden tiny_os against the attack patterns that compromise industrial control systems (ICS/SCADA). Targets: network perimeter defense, authenticated control messages, access control, tamper detection, and forensic audit trails.
+
+**Deliverables:**
+
+*Network Firewall (allowlist-based packet filter):*
+- [ ] `kernel::net::firewall` module: static rule table (up to 16 rules)
+- [ ] Rule matching: source IP, destination port, protocol (ICMP/UDP/TCP), allow/deny action
+- [ ] Default-deny policy: only explicitly allowed traffic passes to the stack
+- [ ] Integrated into `net::process_rx()` before protocol demux
+- [ ] Drop counter and klog audit trail for rejected packets
+- [ ] Shell command: `firewall` (list rules, stats)
+
+*Message Authentication (HMAC-SHA256):*
+- [ ] Software SHA-256 implementation (`kernel::crypto::sha256`): no_std, constant-time
+- [ ] HMAC-SHA256 (`kernel::crypto::hmac`): RFC 2104 keyed-hash message authentication
+- [ ] Replay protection: 64-bit monotonic sequence number per peer, reject duplicates/out-of-window
+- [ ] API: `hmac_sign(key, msg) -> [u8; 32]`, `hmac_verify(key, msg, tag) -> bool`
+- [ ] Host-side unit tests: NIST test vectors for SHA-256 and HMAC
+
+*Shell Authentication:*
+- [ ] Boot-time password challenge before granting shell access
+- [ ] Password stored as compile-time SHA-256 hash (no plaintext in binary)
+- [ ] Lockout after 3 failed attempts (30-second delay)
+- [ ] `os_cfg::SHELL_AUTH_EN` toggle (disabled by default, mandatory in safety-critical)
+
+*Syscall Capability Table:*
+- [ ] Per-task capability bitmask in TCB (`capabilities: u32`, one bit per syscall subsystem)
+- [ ] `task_create` / `task_create_user` accept capability mask parameter
+- [ ] Syscall dispatch checks capability before executing subsystem call
+- [ ] Denied calls return `E_PERM`, logged to audit trail
+- [ ] Default: all capabilities for kernel tasks, restricted set for user tasks
+
+*Runtime Code Integrity:*
+- [ ] CRC32 of `.text` section computed at boot and stored as reference
+- [ ] Health monitor periodic verification (every health check cycle)
+- [ ] `os_hook_integrity_violation` called on mismatch
+- [ ] Structured shutdown on detected tampering (non-recoverable fault)
+- [ ] Shell command: `integrity` (show hash, last check time, status)
+
+*Persistent Audit Log:*
+- [ ] `kernel::audit` module: security event recording to filesystem
+- [ ] Event types: AUTH_FAIL, AUTH_OK, FIREWALL_DROP, CAPABILITY_DENIED, INTEGRITY_CHECK, BOOT, SHUTDOWN
+- [ ] Append-only log file on FAT32 (`/audit.log`), flushed on each write
+- [ ] Timestamps from system tick, task ID and core ID per entry
+- [ ] Shell command: `audit` (dump recent entries)
+
+*JTAG/Debug Lockdown:*
+- [ ] Disable external debug access via `MDCR_EL3` / `OSLAR_EL1` on boot
+- [ ] Controlled by `os_cfg::DEBUG_LOCKDOWN` (enabled in safety-critical mode)
+- [ ] Disable halting debug, software debug events, and performance monitor access from EL0
+
+*Secure Boot Preparation:*
+- [ ] Document secure boot chain architecture for Pi 5 (config.txt + signed kernel8.img)
+- [ ] Image signature format specification (Ed25519 over SHA-256 digest)
+- [ ] Boot stub signature verification hook point in `_start` / early `kmain`
+
+*Verification:*
+- [ ] Host-side unit tests: SHA-256 NIST vectors, HMAC test vectors, CRC32 vectors, firewall rule matching
+- [ ] Fault injection: firewall bypass attempt, HMAC forgery, capability violation
+- [ ] All BSP×feature configurations build cleanly
+- [ ] QEMU integration test: boot with security features, no panics
 
 ---
 

@@ -32,6 +32,10 @@ pub mod sync;
 mod user_tasks;
 pub mod watchdog;
 pub mod wcet;
+pub mod crypto;
+pub mod integrity;
+pub mod audit;
+pub mod jtag;
 #[cfg(feature = "dynamic-load")]
 pub mod loader;
 
@@ -156,7 +160,7 @@ pub extern "C" fn kmain() -> ! {
     uart.init();
     print::init(uart);
 
-    kprintln!("tiny_os Phase 10 boot (Networking & User Mode)");
+    kprintln!("tiny_os Phase 13 boot (Security Hardening)");
     kprintln!("AArch64 EL1 | no_std | no_main");
 
     gic::init(bsp::GIC_DIST_BASE, bsp::GIC_CPU_BASE);
@@ -224,6 +228,16 @@ pub extern "C" fn kmain() -> ! {
     let lo_mac = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
     net::init(net::Ipv4Addr([127, 0, 0, 1]), lo_mac);
     kprintln!("net: loopback, IP 127.0.0.1");
+
+    // Initialize code integrity (CRC32 of .text section).
+    integrity::init();
+
+    // JTAG/debug port lockdown (safety-critical mode only).
+    jtag::lockdown();
+
+    // Initialize audit log and record boot event.
+    audit::log(audit::AuditEvent::Boot, "kernel start");
+    kprintln!("audit: 64-entry ring buffer");
 
     // Initialize klog subsystem.
     kprintln!("klog: {}-entry ring buffer, level={}", os_cfg::LOG_BUFFER_SIZE, klog::get_level().as_str());

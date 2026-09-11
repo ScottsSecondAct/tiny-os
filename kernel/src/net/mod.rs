@@ -6,6 +6,7 @@ pub mod udp;
 pub mod tcp;
 pub mod socket;
 pub mod loopback;
+pub mod firewall;
 
 use crate::{kprintln, netbuf};
 use core::cell::UnsafeCell;
@@ -65,6 +66,7 @@ pub fn init(ip: Ipv4Addr, mac: [u8; 6]) {
     s.initialized = true;
     arp::init();
     socket::init();
+    firewall::init();
     loopback::init(mac);
 }
 
