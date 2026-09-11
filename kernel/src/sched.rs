@@ -24,6 +24,28 @@ pub enum WaitResult {
     Timeout,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(u8)]
+pub enum Criticality {
+    SafetyCritical = 0,
+    MissionCritical = 1,
+    Standard = 2,
+    BestEffort = 3,
+}
+
+impl Criticality {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Criticality::SafetyCritical => "safety",
+            Criticality::MissionCritical => "mission",
+            Criticality::Standard => "standard",
+            Criticality::BestEffort => "best-ef",
+        }
+    }
+}
+
+const STACK_CANARY: u8 = 0xAA;
+
 #[repr(C)]
 pub struct Tcb {
     pub sp: u64,
@@ -32,8 +54,14 @@ pub struct Tcb {
     pub base_priority: u8,
     pub state: TaskState,
     pub wait_result: WaitResult,
+    pub criticality: Criticality,
     pub ticks_remaining: u32,
     pub delay_ticks: u32,
+    pub budget_ticks: u32,
+    pub budget_remaining: u32,
+    pub total_run_ticks: u64,
+    pub stack_base: usize,
+    pub stack_size: usize,
     pub name: &'static str,
     pub next: u8,
 }
@@ -47,8 +75,14 @@ impl Tcb {
             base_priority: 255,
             state: TaskState::Dormant,
             wait_result: WaitResult::Ok,
+            criticality: Criticality::Standard,
             ticks_remaining: 0,
             delay_ticks: 0,
+            budget_ticks: 0,
+            budget_remaining: 0,
+            total_run_ticks: 0,
+            stack_base: 0,
+            stack_size: 0,
             name: "",
             next: 0xFF,
         }
@@ -72,11 +106,12 @@ impl ReadyQueue {
 struct Scheduler {
     tasks: [Tcb; MAX_TASKS],
     ready: [ReadyQueue; MAX_PRIO],
-    // Bitmap: 4 × u64 = 256 bits, one per priority level.
     prio_bitmap: [u64; 4],
     current: u8,
     task_count: u8,
     started: bool,
+    total_ticks: u64,
+    idle_ticks: u64,
 }
 
 impl Scheduler {
@@ -90,6 +125,8 @@ impl Scheduler {
             current: 0xFF,
             task_count: 0,
             started: false,
+            total_ticks: 0,
+            idle_ticks: 0,
         }
     }
 
@@ -193,8 +230,15 @@ impl Drop for CriticalSection {
 /// Initialize the scheduler and create the idle task.
 pub fn init() {
     let s = sched();
-    // Create idle task at lowest priority (255).
     let id = s.alloc_id().expect("no TCB slots");
+
+    // Fill idle stack with canary pattern.
+    let idle_stack = unsafe { &mut IDLE_STACK.0[..] };
+    for byte in idle_stack.iter_mut() {
+        *byte = STACK_CANARY;
+    }
+
+    let stack_base = unsafe { (&raw const IDLE_STACK.0) as usize };
     let stack_top = unsafe {
         ((&raw mut IDLE_STACK.0) as *mut u8).add(IDLE_STACK_SIZE)
     };
@@ -206,8 +250,14 @@ pub fn init() {
         base_priority: 255,
         state: TaskState::Ready,
         wait_result: WaitResult::Ok,
+        criticality: Criticality::BestEffort,
         ticks_remaining: 0,
         delay_ticks: 0,
+        budget_ticks: 0,
+        budget_remaining: 0,
+        total_run_ticks: 0,
+        stack_base,
+        stack_size: IDLE_STACK_SIZE,
         name: "idle",
         next: 0xFF,
     };
@@ -219,6 +269,7 @@ pub fn init() {
 pub fn task_create(
     name: &'static str,
     priority: u8,
+    criticality: Criticality,
     stack: &'static mut [u8],
     entry: fn(usize) -> !,
     arg: usize,
@@ -227,6 +278,14 @@ pub fn task_create(
     let s = sched();
 
     let id = s.alloc_id().ok_or("no TCB slots available")?;
+
+    // Fill stack with canary pattern for watermark tracking.
+    let stack_base = stack.as_ptr() as usize;
+    let stack_size = stack.len();
+    for byte in stack.iter_mut() {
+        *byte = STACK_CANARY;
+    }
+
     let stack_top = unsafe { stack.as_mut_ptr().add(stack.len()) };
     let sp = Aarch64Context::new_context(entry, arg, stack_top);
 
@@ -237,8 +296,14 @@ pub fn task_create(
         base_priority: priority,
         state: TaskState::Ready,
         wait_result: WaitResult::Ok,
+        criticality,
         ticks_remaining: TIMESLICE_TICKS,
         delay_ticks: 0,
+        budget_ticks: 0,
+        budget_remaining: 0,
+        total_run_ticks: 0,
+        stack_base,
+        stack_size,
         name,
         next: 0xFF,
     };
@@ -376,12 +441,31 @@ pub fn start() -> ! {
 }
 
 /// Called from the timer tick ISR. Decrements delay timers, wakes blocked
-/// tasks, and triggers preemption when the timeslice expires.
+/// tasks, enforces budgets, and triggers preemption when the timeslice expires.
 pub fn tick() {
     let s = sched();
     if !s.started || s.current == 0xFF {
         return;
     }
+
+    // Utilization tracking.
+    s.total_ticks += 1;
+    let idx = s.current as usize;
+    s.tasks[idx].total_run_ticks += 1;
+    if s.tasks[idx].priority == 255 {
+        s.idle_ticks += 1;
+    }
+
+    // Budget enforcement.
+    if s.tasks[idx].budget_ticks > 0 && s.tasks[idx].budget_remaining > 0 {
+        s.tasks[idx].budget_remaining -= 1;
+        if s.tasks[idx].budget_remaining == 0 {
+            crate::klog_warn!("sched", "task '{}' (id={}) budget exhausted", s.tasks[idx].name, s.tasks[idx].id);
+        }
+    }
+
+    // Software watchdog.
+    crate::watchdog::tick();
 
     // Check all blocked tasks for delay expiry.
     let mut woke_higher = false;
@@ -400,7 +484,6 @@ pub fn tick() {
         }
     }
 
-    let idx = s.current as usize;
     if s.tasks[idx].ticks_remaining > 0 {
         s.tasks[idx].ticks_remaining -= 1;
     }
@@ -645,4 +728,96 @@ pub fn current_task_name() -> &'static str {
 
 pub fn task_count() -> u8 {
     sched().task_count
+}
+
+// --- Budget and criticality APIs ---
+
+pub fn task_set_budget(id: u8, ticks: u32) {
+    let _cs = CriticalSection::enter();
+    let s = sched();
+    let idx = id as usize;
+    if idx < MAX_TASKS && s.tasks[idx].state != TaskState::Dormant {
+        s.tasks[idx].budget_ticks = ticks;
+        s.tasks[idx].budget_remaining = ticks;
+    }
+}
+
+pub fn task_get_remaining(id: u8) -> u32 {
+    let s = sched();
+    s.tasks[id as usize].budget_remaining
+}
+
+pub fn task_reset_budget(id: u8) {
+    let _cs = CriticalSection::enter();
+    let s = sched();
+    let idx = id as usize;
+    if idx < MAX_TASKS {
+        s.tasks[idx].budget_remaining = s.tasks[idx].budget_ticks;
+    }
+}
+
+pub fn task_set_criticality(id: u8, crit: Criticality) {
+    let _cs = CriticalSection::enter();
+    let s = sched();
+    let idx = id as usize;
+    if idx < MAX_TASKS && s.tasks[idx].state != TaskState::Dormant {
+        s.tasks[idx].criticality = crit;
+    }
+}
+
+// --- Utilization ---
+
+pub fn utilization() -> (u64, u64) {
+    let s = sched();
+    let busy = s.total_ticks - s.idle_ticks;
+    (busy, s.total_ticks)
+}
+
+// --- Stack watermark ---
+
+fn stack_watermark(base: usize, size: usize) -> usize {
+    let ptr = base as *const u8;
+    let mut unused = 0usize;
+    for i in 0..size {
+        if unsafe { *ptr.add(i) } == STACK_CANARY {
+            unused += 1;
+        } else {
+            break;
+        }
+    }
+    size - unused
+}
+
+/// Return stack info for all non-dormant tasks: (id, name, used_bytes, total_bytes).
+pub fn task_stack_info() -> [(u8, &'static str, usize, usize); MAX_TASKS] {
+    let _cs = CriticalSection::enter();
+    let s = sched();
+    let mut result = [(0u8, "", 0usize, 0usize); MAX_TASKS];
+    for i in 0..MAX_TASKS {
+        if s.tasks[i].state != TaskState::Dormant && s.tasks[i].stack_size > 0 {
+            let used = stack_watermark(s.tasks[i].stack_base, s.tasks[i].stack_size);
+            result[i] = (s.tasks[i].id, s.tasks[i].name, used, s.tasks[i].stack_size);
+        }
+    }
+    result
+}
+
+/// Extended task list for shell display.
+pub fn task_list_ext() -> [(u8, &'static str, u8, TaskState, Criticality, u32, u64); MAX_TASKS] {
+    let s = sched();
+    let mut result = [(0u8, "", 0u8, TaskState::Dormant, Criticality::Standard, 0u32, 0u64); MAX_TASKS];
+    for i in 0..MAX_TASKS {
+        if s.tasks[i].state != TaskState::Dormant {
+            result[i] = (
+                s.tasks[i].id,
+                s.tasks[i].name,
+                s.tasks[i].priority,
+                s.tasks[i].state,
+                s.tasks[i].criticality,
+                s.tasks[i].budget_ticks,
+                s.tasks[i].total_run_ticks,
+            );
+        }
+    }
+    result
 }

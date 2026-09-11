@@ -83,7 +83,15 @@ tiny_os/
         ├── sched.rs        # 256-level fixed-priority preemptive scheduler: TCB array,
         │                   #   per-priority FIFO ready queues, 4×u64 bitmap for O(1)
         │                   #   dispatch, delay-based blocking, CriticalSection RAII guard,
-        │                   #   WaitResult/base_priority for sync, public block/wake/set_priority
+        │                   #   WaitResult/base_priority for sync, budget enforcement,
+        │                   #   criticality levels, stack watermarks, CPU utilization
+        ├── klog.rs         # Ring-buffer log subsystem: 5 levels (ERROR..TRACE),
+        │                   #   timestamps, module tags, 64-entry buffer, BufWriter formatter
+        ├── watchdog.rs     # Software watchdog: tick-based counter with configurable timeout,
+        │                   #   auto-kick task at priority 0 ensures scheduler liveness
+        ├── health.rs       # Health monitor task (priority 1): periodic stack watermark
+        │                   #   scanning, CPU utilization checks, watchdog status, klog output
+        ├── drivers.rs      # Driver trait (name/init/status) with 16-slot static registry
         ├── sync/           # Synchronization primitives subsystem
         │   ├── mod.rs      # WaitQueue: priority-sorted waiter array, lazy stale cleanup
         │   ├── mutex.rs    # Mutex with PIP/PCP, recursive locking (max depth 8), timeout

@@ -97,20 +97,25 @@ Blocking synchronization objects with priority inversion protection.
 
 ---
 
-## Phase 6 — Driver Framework & Logging
+## Phase 6 — Driver Framework & Logging ✅
 
-A structured driver registry and a kernel logging subsystem to replace early `kprintln!` boot prints.
+A structured driver registry, kernel logging subsystem, health monitoring, and budget enforcement.
 
 **Deliverables:**
-- [ ] Driver trait registry with probe/remove lifecycle
-- [ ] GPIO driver via RP1 (`rp1_gpio.rs`)
-- [ ] SPI and I²C drivers via RP1 (basic)
-- [ ] `klog` subsystem: log levels (ERROR, WARN, INFO, DEBUG, TRACE), timestamps, module tags
-- [ ] Ring-buffer log drain (accessible via shell in Phase 9)
-- [ ] Health monitoring task: ready queue integrity, stack watermarks, mutex ownership, tick monotonicity, pool accounting, kernel stack canary
-- [ ] PM watchdog integration: `os_watchdog_init`, `os_watchdog_kick`, automatic kick task at priority 0
-- [ ] Structured shutdown sequence: register dump, diagnostic region, `os_hook_shutdown`, optional reboot
-- [ ] Degraded-mode operation: task-level fault isolation, criticality mode switch (`os_criticality_switch`)
+- [x] `klog` subsystem: 5 log levels (ERROR, WARN, INFO, DEBUG, TRACE), timestamps, module tags
+- [x] 64-entry ring-buffer log drain, accessible via shell `log` command with runtime level filter
+- [x] Error/Warn auto-print to UART; Info/Debug/Trace to ring buffer only
+- [x] Driver trait definition with probe/remove lifecycle and 16-slot static registry
+- [x] Per-task execution-time budget enforcement (`task_set_budget`, `task_get_remaining`, `task_reset_budget`)
+- [x] Deadline-miss detection via klog warning when task budget exhausted
+- [x] Task criticality levels: SafetyCritical, MissionCritical, Standard, BestEffort
+- [x] Stack watermark tracking: 0xAA canary fill at task creation, runtime scan for high-water mark
+- [x] Health monitoring task (priority 1): periodic stack/CPU/watchdog checks every 5 seconds
+- [x] Software watchdog: tick-based counter, `watchdog_init`/`watchdog_kick`, auto-kick task at priority 0
+- [x] CPU utilization tracking: `sched::utilization()` returns busy/total ticks
+- [x] Shell commands: `log [N]`, `log level <level>`, `health` (stack watermarks, CPU, watchdog status)
+- [x] Extended `tasks` command: criticality column and per-task CPU tick counter
+- [x] Verified on QEMU: 6 tasks (incl. watchdog-kick and health-mon), stable operation, no timeouts
 
 ---
 

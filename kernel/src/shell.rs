@@ -1,4 +1,4 @@
-use crate::{kprint, kprintln, mm, sched};
+use crate::{kprint, kprintln, klog, mm, sched, watchdog};
 use arch::aarch64::exceptions;
 use arch::aarch64::mmu;
 use arch::aarch64::timer;
@@ -85,13 +85,20 @@ fn uart_fr_addr() -> usize {
 }
 
 fn dispatch(cmd: &str) {
-    match cmd.trim() {
+    let trimmed = cmd.trim();
+    let (base, arg) = match trimmed.find(' ') {
+        Some(i) => (&trimmed[..i], trimmed[i+1..].trim()),
+        None => (trimmed, ""),
+    };
+
+    match base {
         "help" => {
-            kprintln!("commands: help, uptime, ticks, info, mem, tasks, yield, svc, reboot");
+            kprintln!("commands: help, uptime, ticks, info, mem, tasks, log, health,");
+            kprintln!("          yield, svc, reboot");
         }
         "uptime" => {
             let ticks = exceptions::tick_count();
-            let ms = ticks; // 1 kHz tick → 1 tick = 1 ms
+            let ms = ticks;
             let secs = ms / 1000;
             let frac = ms % 1000;
             kprintln!("uptime: {}.{:03}s ({} ticks)", secs, frac, ticks);
@@ -113,19 +120,59 @@ fn dispatch(cmd: &str) {
             kprintln!("MMU:    {}", if mmu::enabled() { "on" } else { "off" });
         }
         "tasks" => {
-            kprintln!("{:<4} {:<12} {:<6} {:<10}", "ID", "NAME", "PRIO", "STATE");
-            for entry in sched::task_list().iter() {
-                let (id, name, prio, state) = *entry;
+            kprintln!("{:<4} {:<12} {:<6} {:<10} {:<8} {:<8}", "ID", "NAME", "PRIO", "STATE", "CRIT", "CPU");
+            for entry in sched::task_list_ext().iter() {
+                let (id, name, prio, state, crit, _budget, run_ticks) = *entry;
                 if state != sched::TaskState::Dormant {
                     let state_str = match state {
                         sched::TaskState::Ready => "ready",
                         sched::TaskState::Running => "running",
                         sched::TaskState::Blocked => "blocked",
-                        sched::TaskState::Suspended => "suspended",
+                        sched::TaskState::Suspended => "suspend",
                         sched::TaskState::Dormant => "dormant",
                     };
-                    kprintln!("{:<4} {:<12} {:<6} {:<10}", id, name, prio, state_str);
+                    kprintln!("{:<4} {:<12} {:<6} {:<10} {:<8} {:<8}",
+                        id, name, prio, state_str, crit.as_str(), run_ticks);
                 }
+            }
+        }
+        "log" => {
+            if arg.starts_with("level ") {
+                let level_str = arg[6..].trim();
+                match klog::LogLevel::from_str(level_str) {
+                    Some(level) => {
+                        klog::set_level(level);
+                        kprintln!("log level set to {}", level.as_str());
+                    }
+                    None => kprintln!("unknown level: {} (use error/warn/info/debug/trace)", level_str),
+                }
+            } else {
+                let count = if arg.is_empty() {
+                    16
+                } else {
+                    arg.parse::<usize>().unwrap_or(16)
+                };
+                klog::dump(count);
+            }
+        }
+        "health" => {
+            kprintln!("Stack watermarks:");
+            for &(_id, name, used, size) in sched::task_stack_info().iter() {
+                if size == 0 {
+                    continue;
+                }
+                let pct = (used * 100) / size;
+                kprintln!("  {:<12}: {}/{} ({}%)", name, used, size, pct);
+            }
+            let (busy, total) = sched::utilization();
+            if total > 0 {
+                let cpu_pct = (busy * 100) / total;
+                kprintln!("CPU utilization: {}% (idle {}%)", cpu_pct, 100 - cpu_pct);
+            }
+            if watchdog::is_enabled() {
+                kprintln!("Watchdog: ok ({}ms timeout, counter {}ms)", watchdog::timeout(), watchdog::counter());
+            } else {
+                kprintln!("Watchdog: disabled");
             }
         }
         "yield" => {
@@ -137,8 +184,6 @@ fn dispatch(cmd: &str) {
         }
         "reboot" => {
             kprintln!("rebooting...");
-            // On real hardware this would use the PM watchdog.
-            // On QEMU with -no-reboot, this halts.
             unsafe { core::arch::asm!("msr daifset, #15") };
             loop {
                 unsafe { core::arch::asm!("wfe") };
@@ -146,7 +191,7 @@ fn dispatch(cmd: &str) {
         }
         "" => {}
         _ => {
-            kprintln!("unknown command: {}", cmd);
+            kprintln!("unknown command: {}", trimmed);
             kprintln!("type 'help' for available commands");
         }
     }

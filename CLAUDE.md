@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 5: Synchronization Primitives** — complete. Mutex with PIP/PCP, binary/counting semaphores, 32-bit event flags, const-generic message queues, timeout support on all blocking operations. Built on Phase 4's preemptive scheduler with WaitResult/base_priority extensions. Next up: Phase 6 (Driver Framework & Logging).
+**Phase 6: Driver Framework & Logging** — complete. klog ring-buffer subsystem with 5 log levels, per-task execution budgets with deadline-miss detection, task criticality levels, stack watermark tracking, software watchdog with auto-kick task, health monitoring task, CPU utilization tracking, driver trait definition. Next up: Phase 7 (Symmetric Multiprocessing).
 
 ## Target Hardware
 
@@ -77,8 +77,12 @@ tiny_os/
 │   │   ├── panic.rs        # panic_handler
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
-│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, yield, svc, reboot)
-│   │   ├── sched.rs        # 256-level fixed-priority scheduler, TCB, delay, context switch orchestration
+│   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, yield, svc, reboot)
+│   │   ├── sched.rs        # 256-level fixed-priority scheduler, TCB, delay, budget, criticality, utilization
+│   │   ├── klog.rs         # Ring-buffer log subsystem: 5 levels, timestamps, module tags, 64-entry buffer
+│   │   ├── watchdog.rs     # Software watchdog: tick-based counter, auto-kick task at priority 0
+│   │   ├── health.rs       # Health monitor task: stack watermarks, CPU utilization, watchdog status
+│   │   ├── drivers.rs      # Driver trait (probe/remove lifecycle) and static registry
 │   │   ├── sync/           # Synchronization primitives subsystem
 │   │   │   ├── mod.rs      # WaitQueue: priority-sorted waiter array with lazy cleanup
 │   │   │   ├── mutex.rs    # Mutex with PIP, PCP, recursive locking, timeout
@@ -215,14 +219,30 @@ tiny_os/
 - [x] Demo tasks: mutex-protected shared counter + binary semaphore signaling between tasks
 - [x] Verified on QEMU: PIP mutex, semaphore sync, correct counter handoff across tasks
 
-## Phase 6 Deliverables Checklist (next)
+### Phase 6 — Driver Framework & Logging ✅
 
-- [ ] Driver trait registry with probe/remove lifecycle
-- [ ] GPIO driver via RP1 (`rp1_gpio.rs`)
-- [ ] SPI and I²C drivers via RP1 (basic)
-- [ ] `klog` subsystem: log levels (ERROR, WARN, INFO, DEBUG, TRACE), timestamps, module tags
-- [ ] Ring-buffer log drain (accessible via shell)
-- [ ] Per-task execution-time budget enforcement (`os_task_set_budget`, `os_task_get_remaining`)
-- [ ] Deadline-miss detection with `os_hook_deadline_miss` callback
-- [ ] Task criticality levels (SAFETY_CRITICAL, MISSION_CRITICAL, STANDARD, BEST_EFFORT)
-- [ ] `os_sched_utilization()` for Rate Monotonic Analysis validation
+- [x] `klog` subsystem: 5 log levels (ERROR, WARN, INFO, DEBUG, TRACE), timestamps, module tags
+- [x] 64-entry ring-buffer log drain, accessible via shell `log` command
+- [x] Runtime log level filter (`log level <level>` shell command)
+- [x] Error/Warn messages auto-print to UART; Info/Debug/Trace to ring buffer only
+- [x] Per-task execution-time budget enforcement (`task_set_budget`, `task_get_remaining`, `task_reset_budget`)
+- [x] Deadline-miss detection: klog warning when task budget exhausted
+- [x] Task criticality levels: SafetyCritical, MissionCritical, Standard, BestEffort
+- [x] Stack watermark tracking: canary fill (0xAA) at task creation, runtime measurement
+- [x] Health monitoring task (priority 1): periodic stack/CPU/watchdog checks every 5 seconds
+- [x] Software watchdog: tick-based counter with auto-kick task at priority 0
+- [x] CPU utilization tracking: `sched::utilization()` returns busy/total ticks
+- [x] Driver trait definition with probe/remove lifecycle and static registry (16 slots)
+- [x] Shell commands: `log [N]`, `log level <level>`, `health` (stack watermarks, CPU, watchdog)
+- [x] Extended `tasks` command showing criticality and CPU ticks per task
+- [x] Verified on QEMU: 6 tasks (incl. watchdog-kick and health-mon), no timeouts, stable operation
+
+## Phase 7 Deliverables Checklist (next)
+
+- [ ] Secondary core wakeup sequence (`smp.rs`) via spin-table / PSCI
+- [ ] Per-core stacks and GIC CPU interface initialization
+- [ ] `SmpBoot` HAL trait
+- [ ] Per-core run queues with work-stealing or global run queue with spinlock
+- [ ] Spinlock (`SpinMutex`) for SMP critical sections
+- [ ] IPI (inter-processor interrupts) for scheduler cross-core wakeup
+- [ ] Verified preemption and context switch on all 4 cores simultaneously

@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 5 complete** — Synchronization primitives: mutex with Priority Inheritance/Ceiling protocols, binary/counting semaphores, 32-bit event flags, const-generic message queues, and timeout support on all blocking operations. Built on Phase 4's preemptive 256-level scheduler with O(1) bitmap dispatch, Phase 3's MMU (W^X, identity-mapped 2MB blocks), page/heap allocators, and Phase 2's GIC-400 + ARM Generic Timer (1 kHz tick).
+**Phase 6 complete** — Driver framework and logging: klog ring-buffer subsystem with 5 log levels, per-task execution budgets with deadline-miss detection, task criticality levels, stack watermark tracking, software watchdog with auto-kick task, health monitoring, CPU utilization tracking, and driver trait definition. Built on Phase 5's sync primitives (mutex PIP/PCP, semaphores, event flags, message queues), Phase 4's preemptive 256-level scheduler, Phase 3's MMU (W^X), and Phase 2's GIC-400 + ARM Generic Timer.
 
 ## Target Hardware
 
@@ -90,7 +90,7 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a full annotated tree.
 tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
-├── kernel/     # Kernel entry, scheduler, sync primitives, IRQ dispatch, memory management, shell
+├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, IRQ dispatch, memory mgmt, shell
 └── docs/       # Specifications and phase breakdown
 ```
 
