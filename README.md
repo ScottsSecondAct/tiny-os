@@ -5,7 +5,7 @@ A bare-metal real-time operating system written in Rust, targeting the Raspberry
 
 ## Status
 
-**Phase 10 complete** — Networking & User Mode: zero-copy network stack (Ethernet, ARP, IPv4, ICMP, UDP, TCP) with loopback device for QEMU, BSD socket API, EL0 user-mode tasks with per-task page tables (TTBR0+ASID), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit, temperature). User-space apps in `examples/` run at EL0 via syscalls — temperature monitor tracks SoC temperature with min/max/avg stats. Optional ELF64 dynamic loader (`dynamic-load` feature) loads PIE binaries from the filesystem at runtime via `exec` shell command — disabled by default for safety-critical builds. Shell commands: `ping`, `netstat`, `ifconfig`, `temp`, `exec`. Built on Phase 9's filesystem, Phase 8's netbuf/block cache, Phase 7's SMP (4 cores), and earlier phases (scheduler, sync, MMU, GIC, timer).
+**Phase 10 complete** — Networking & User Mode: zero-copy network stack (Ethernet, ARP, IPv4, ICMP, UDP, TCP) with loopback device for QEMU, BSD socket API, EL0 user-mode tasks with per-task page tables (TTBR0+ASID), SVC-based syscall dispatch with subsystem multiplexing (FS, NET, SPI, I2C, GPIO). RP1 southbridge drivers for SPI (DW_apb_ssi), I2C (DW_apb_i2c), and GPIO (28-pin, pad control). User-space apps in `examples/`: temperature monitor (SoC temp stats), industrial sensor gateway (SPI/I2C/GPIO data collection, SD card logging, UDP telemetry). Optional ELF64 dynamic loader (`dynamic-load` feature) loads PIE binaries from the filesystem at runtime via `exec` shell command — disabled by default for safety-critical builds. Shell commands: `ping`, `netstat`, `ifconfig`, `temp`, `exec`. Built on Phase 9's filesystem, Phase 8's netbuf/block cache, Phase 7's SMP (4 cores), and earlier phases (scheduler, sync, MMU, GIC, timer).
 
 ## Target Hardware
 
@@ -103,7 +103,7 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a full annotated tree.
 tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, mailbox, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
-├── examples/   # User-space applications (EL0): temperature monitor
+├── examples/   # User-space applications (EL0): temp monitor, sensor gateway
 ├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, syscalls, user tasks, ELF loader, netbuf, IRQ dispatch, memory mgmt, shell
 ├── tests/      # Host unit tests (cargo test) + QEMU integration tests (boot verification)
 └── docs/       # Specifications, API reference, and developer guides
@@ -117,7 +117,7 @@ tiny_os/
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the full 11-phase implementation plan (including Phase 11: Safety Certification).
+See [ROADMAP.md](ROADMAP.md) for the full 12-phase implementation plan (Phase 11: Safety Certification, Phase 12: Extended Peripheral Support).
 
 ## License
 

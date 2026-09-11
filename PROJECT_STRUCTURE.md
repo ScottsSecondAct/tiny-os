@@ -28,9 +28,14 @@ tiny_os/
 │                           #   syscall interface, static/dynamic deployment, constraints
 │
 ├── examples/               # User-space applications (run at EL0 via syscalls)
-│   └── temp_monitor.rs     # Temperature monitor: reads SoC temp via SYS_TEMPERATURE
-│                           #   syscall, tracks min/max/avg, prints periodic status,
-│                           #   all code in .user.text section (EL0-accessible)
+│   ├── temp_monitor/
+│   │   ├── main.rs         # Temperature monitor: reads SoC temp via SYS_TEMPERATURE
+│   │   │                   #   syscall, tracks min/max/avg, prints periodic status
+│   │   └── README.md       # Description and sample output
+│   └── sensor_gateway/
+│       ├── main.rs         # Industrial sensor gateway: collects SPI/I2C/GPIO data,
+│       │                   #   logs to SD card, forwards over UDP
+│       └── README.md       # Description, syscall usage, scheduling context
 │
 ├── arch/                   # Architecture crate — hardware register access & HAL traits
 │   ├── Cargo.toml
@@ -46,6 +51,9 @@ tiny_os/
 │       ├── dma.rs          # DmaEngine HAL trait: channel-based DMA transfers
 │       ├── net.rs          # NetDevice HAL trait: zero-copy packet TX/RX
 │       ├── user.rs         # UserContext HAL trait: EL0 task isolation
+│       ├── spi.rs          # SpiDevice HAL trait: configure, transfer, read, write
+│       ├── i2c.rs          # I2cDevice HAL trait: configure, read, write, write_read
+│       ├── gpio.rs         # GpioController HAL trait: set_mode, set_pull, read, write
 │       └── aarch64/
 │           ├── mod.rs      # AArch64 module root
 │           ├── boot.S      # _start: DTB save, spin-table parking, secondary_boot
@@ -79,9 +87,13 @@ tiny_os/
 │       │                   #   MAILBOX_BASE based on active feature flag
 │       ├── rpi5/
 │       │   ├── mod.rs          # BSP root for Raspberry Pi 5
-│       │   ├── memory_map.rs   # RP1_UART0_BASE = 0x1F_0006_C000 (36-bit PCIe window),
-│       │   │                   #   GIC bases, MAILBOX_BASE, EMMC2_BASE, RAM default (4GB), peripheral + RP1 MMIO regions
-│       │   └── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
+│       │   ├── memory_map.rs   # RP1_UART0_BASE, RP1_SPI0_BASE, RP1_I2C0_BASE,
+│       │   │                   #   RP1_GPIO_BASE (36-bit PCIe window), GIC bases,
+│       │   │                   #   MAILBOX_BASE, EMMC2_BASE, peripheral + RP1 MMIO regions
+│       │   ├── rp1_uart.rs     # RP1 PL011 UART driver (MMIO volatile writes)
+│       │   ├── rp1_spi.rs      # RP1 SPI0 driver (DW_apb_ssi, polling mode)
+│       │   ├── rp1_i2c.rs      # RP1 I2C0 driver (DW_apb_i2c, polling mode)
+│       │   └── rp1_gpio.rs     # RP1 GPIO driver (28 pins, pad control, RIO)
 │       └── qemu_virt/
 │           ├── mod.rs          # BSP root for QEMU raspi4b
 │           ├── memory_map.rs   # UART at 0xFE20_1000, GIC bases, MAILBOX_BASE, EMMC2_BASE,
@@ -107,8 +119,11 @@ tiny_os/
         │                   #   yield, svc, reboot
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
-        ├── syscall.rs      # Syscall dispatch: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2),
-        │                   #   SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
+        ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE) and
+        │                   #   subsystem multiplexed (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C,
+        │                   #   SYS_GPIO) with X0=operation, X1-X3=args
+        ├── periph.rs       # Peripheral driver instances (SPI/I2C/GPIO): cfg-gated
+        │                   #   RP1 drivers on Pi 5, stubs on QEMU
         ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs,
         │                   #   all code in .user.text section (EL0-accessible)
         ├── loader.rs       # [dynamic-load] ELF64 PIE loader: parse headers, load

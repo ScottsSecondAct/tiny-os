@@ -61,7 +61,11 @@ Interactive commands at the `tiny_os>` UART prompt. Type `help` for the built-in
 
 ## User-Mode Syscalls
 
-EL0 tasks invoke syscalls via `SVC #0`. The syscall number goes in **X8**, arguments in **X0-X1**, and the return value comes back in **X0**.
+EL0 tasks invoke syscalls via `SVC #0`. The syscall number goes in **X8**, arguments in **X0-X3**, and the return value comes back in **X0**.
+
+### Basic Syscalls
+
+X8 selects the syscall; X0 and X1 carry arguments directly.
 
 | # | Name | Args | Return | Description |
 |---|------|------|--------|-------------|
@@ -73,10 +77,87 @@ EL0 tasks invoke syscalls via `SVC #0`. The syscall number goes in **X8**, argum
 | 5 | `SYS_EXIT` | — | (no return) | Terminate the current task |
 | 6 | `SYS_TEMPERATURE` | — | X0: millidegrees C | Read SoC temperature via VideoCore mailbox |
 
-### Inline-asm calling convention (from `kernel/src/user_tasks.rs`)
+### Subsystem Syscalls
+
+X8 selects the subsystem; X0 selects the operation within it; X1-X3 carry arguments.
+
+| X8 | Subsystem | Description |
+|----|-----------|-------------|
+| 10 | `SYS_FS` | Filesystem operations |
+| 11 | `SYS_NET` | Network socket operations |
+| 12 | `SYS_SPI` | SPI bus operations |
+| 13 | `SYS_I2C` | I2C bus operations |
+| 14 | `SYS_GPIO` | GPIO pin operations |
+
+#### Error Codes
+
+All subsystem syscalls return `u64::MAX` (`0xFFFF_FFFF_FFFF_FFFF`) family values on error:
+
+| Value | Name | Meaning |
+|-------|------|---------|
+| `u64::MAX` | `E_NOSYS` | Operation not implemented |
+| `u64::MAX-1` | `E_BADF` | Bad file/socket descriptor |
+| `u64::MAX-2` | `E_INVAL` | Invalid argument |
+| `u64::MAX-3` | `E_NOMEM` | Out of memory |
+| `u64::MAX-4` | `E_IO` | I/O error |
+| `u64::MAX-5` | `E_NOENT` | No such file or entry |
+| `u64::MAX-6` | `E_NOSPC` | No space left |
+| `u64::MAX-7` | `E_BUSY` | Resource busy |
+| `u64::MAX-8` | `E_PERM` | Permission denied |
+
+#### SYS_FS (10) — Filesystem
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `FS_OPEN` | path_ptr | path_len | flags (0=RO, 1=RW) | fd or error |
+| 1 | `FS_READ` | fd | buf_ptr | buf_len | bytes read or error |
+| 2 | `FS_WRITE` | fd | buf_ptr | buf_len | bytes written or error |
+| 3 | `FS_CLOSE` | fd | — | — | 0 or error |
+| 4 | `FS_STAT` | path_ptr | path_len | out_ptr | 0 or error |
+| 5 | `FS_CREATE` | path_ptr | path_len | — | fd or error |
+
+#### SYS_NET (11) — Network
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `NET_SOCKET` | type (0=UDP, 1=TCP) | — | — | fd or error |
+| 1 | `NET_BIND` | fd | port | — | 0 or error |
+| 2 | `NET_CONNECT` | fd | ipv4 (BE u32) | port | 0 or error |
+| 3 | `NET_SEND` | fd | data_ptr | data_len | bytes sent or error |
+| 4 | `NET_RECV` | fd | buf_ptr | buf_len | bytes received or error |
+| 5 | `NET_CLOSE` | fd | — | — | 0 |
+
+#### SYS_SPI (12) — SPI Bus
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `SPI_OPEN` | clock_hz | mode (0-3) | cs_pin | 0 or error |
+| 1 | `SPI_TRANSFER` | tx_ptr | rx_ptr | len | bytes transferred or error |
+| 2 | `SPI_CLOSE` | — | — | — | 0 |
+
+#### SYS_I2C (13) — I2C Bus
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `I2C_OPEN` | clock_hz | — | — | 0 or error |
+| 1 | `I2C_READ` | device_addr | buf_ptr | buf_len | bytes read or error |
+| 2 | `I2C_WRITE` | device_addr | buf_ptr | buf_len | bytes written or error |
+| 3 | `I2C_CLOSE` | — | — | — | 0 |
+
+#### SYS_GPIO (14) — GPIO Pins
+
+| X0 | Operation | X1 | X2 | X3 | Return |
+|----|-----------|----|----|-----|--------|
+| 0 | `GPIO_SET_MODE` | pin | mode (0=In, 1=Out, 2-7=Alt0-5) | — | 0 or error |
+| 1 | `GPIO_READ` | pin | — | — | 0 or 1, or error |
+| 2 | `GPIO_WRITE` | pin | value (0/1) | — | 0 or error |
+| 3 | `GPIO_SET_PULL` | pin | pull (0=None, 1=Up, 2=Down) | — | 0 or error |
+
+### Inline-asm calling convention
 
 ```rust
-fn syscall(nr: u64, a0: u64, a1: u64) -> u64 {
+// 4-argument subsystem syscall wrapper
+fn syscall4(nr: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let ret: u64;
     unsafe {
         asm!(
@@ -84,8 +165,8 @@ fn syscall(nr: u64, a0: u64, a1: u64) -> u64 {
             in("x8") nr,
             inout("x0") a0 => ret,
             in("x1") a1,
-            lateout("x2") _,
-            lateout("x3") _,
+            in("x2") a2,
+            in("x3") a3,
         );
     }
     ret
@@ -649,3 +730,6 @@ Hardware abstraction traits in the `arch` crate. Implement these to port to a ne
 | `BlockDevice` | `arch::block` | `read_block(lba, buf)`, `write_block(lba, buf)`, `block_count()`, `block_size()` |
 | `NetDevice` | `arch::net` | `send(buf_idx) -> Result`, `recv() -> Option<u16>`, `mac_addr() -> [u8; 6]` |
 | `UserContext` | `arch::user` | `new_user_context(entry, user_sp, arg, kernel_sp) -> u64` |
+| `SpiDevice` | `arch::spi` | `configure(config)`, `transfer(tx, rx)`, `write(data)`, `read(buf)` |
+| `I2cDevice` | `arch::i2c` | `configure(config)`, `write(addr, data)`, `read(addr, buf)`, `write_read(addr, tx, rx)` |
+| `GpioController` | `arch::gpio` | `set_mode(pin, mode)`, `set_pull(pin, pull)`, `read(pin)`, `write(pin, high)` |

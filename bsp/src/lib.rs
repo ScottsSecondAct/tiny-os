@@ -16,3 +16,6 @@ pub use rpi5::memory_map::{EMMC2_BASE, GIC_CPU_BASE, GIC_DIST_BASE, MAILBOX_BASE
 
 #[cfg(feature = "bsp-qemu")]
 pub use qemu_virt::memory_map::{EMMC2_BASE, GIC_CPU_BASE, GIC_DIST_BASE, MAILBOX_BASE};
+
+#[cfg(feature = "bsp-rpi5")]
+pub use rpi5::{Rp1Gpio, Rp1I2c, Rp1Spi};

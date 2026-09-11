@@ -11,9 +11,12 @@ pub mod klog;
 mod mm;
 pub mod netbuf;
 pub mod sched;
-#[path = "../../examples/temp_monitor.rs"]
+#[path = "../../examples/temp_monitor/main.rs"]
 mod temp_monitor;
+#[path = "../../examples/sensor_gateway/main.rs"]
+mod sensor_gateway;
 mod shell;
+pub mod periph;
 pub mod syscall;
 pub mod spinlock;
 pub mod fs;
@@ -46,10 +49,12 @@ static mut HEALTH_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut NET_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut USER_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut TEMP_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut GW_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 #[repr(align(4096))]
 struct UserStack([u8; 16384]);
 static mut USER_STACK: UserStack = UserStack([0; 16384]);
 static mut TEMP_USER_STACK: UserStack = UserStack([0; 16384]);
+static mut GW_USER_STACK: UserStack = UserStack([0; 16384]);
 
 // Per-secondary-core boot stacks (referenced by boot.S via SECONDARY_STACKS).
 #[repr(align(16))]
@@ -290,6 +295,21 @@ pub extern "C" fn kmain() -> ! {
         "temp-mon", 100, Criticality::Standard,
         temp_kernel_stack, temp_entry, temp_stack_top, 0, temp_ttbr0,
     ).expect("failed to create temp monitor task");
+
+    // Create EL0 sensor gateway task (examples/sensor_gateway.rs).
+    let gw_entry = sensor_gateway::sensor_gateway_main as *const () as usize;
+    let gw_stack_base = unsafe { &raw const GW_USER_STACK.0 as usize };
+    let gw_stack_top = gw_stack_base + 16384;
+
+    let gw_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, gw_stack_base, user_stack_pages)
+    };
+
+    let gw_kernel_stack = unsafe { &mut GW_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "sensor-gw", 80, Criticality::MissionCritical,
+        gw_kernel_stack, gw_entry, gw_stack_top, 0, gw_ttbr0,
+    ).expect("failed to create sensor gateway task");
 
     kprintln!("sched: {} tasks created on core 0", sched::task_count());
 

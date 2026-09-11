@@ -35,6 +35,15 @@ pub const EMMC2_BASE: usize = 0xFE34_0000;
 pub const PERIPH_BASE: usize = 0xFE00_0000;
 pub const PERIPH_SIZE: usize = 0x0200_0000; // 32 MB
 
+/// RP1 SPI0 base (DW_apb_ssi, RP1-local 0x4005_0000).
+pub const RP1_SPI0_BASE: usize = RP1_BASE + 0x0005_0000;
+
+/// RP1 I2C0 base (DW_apb_i2c, RP1-local 0x4007_0000).
+pub const RP1_I2C0_BASE: usize = RP1_BASE + 0x0007_0000;
+
+/// RP1 GPIO base (RP1-local 0x400D_0000).
+pub const RP1_GPIO_BASE: usize = RP1_BASE + 0x000D_0000;
+
 /// RP1 southbridge MMIO region (UART, SPI, I²C, Ethernet).
 pub const RP1_PERIPH_BASE: usize = 0x1F_0000_0000;
 pub const RP1_PERIPH_SIZE: usize = 0x0040_0000; // 4 MB

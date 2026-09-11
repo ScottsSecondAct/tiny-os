@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit, temperature). User-space temperature monitor app in `examples/` reads SoC temperature via SYS_TEMPERATURE syscall, tracks min/max/avg statistics. Shell commands: `ping`, `netstat`, `ifconfig`, `temp`. Next up: Phase 11 (Safety Certification).
+**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch with subsystem multiplexing — basic syscalls (yield, delay, write, task_id, uptime, exit, temperature) plus subsystem calls (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C, SYS_GPIO) using X0=operation, X1-X3=args. RP1 southbridge drivers for SPI (DW_apb_ssi), I2C (DW_apb_i2c), and GPIO (28-pin, pad control, RIO registers). User-space apps in `examples/`: temperature monitor (SoC temp stats), industrial sensor gateway (SPI/I2C/GPIO data collection, SD card logging, UDP telemetry). Shell commands: `ping`, `netstat`, `ifconfig`, `temp`. Next up: Phase 11 (Safety Certification).
 
 ## Target Hardware
 
@@ -59,6 +59,9 @@ All hardware-specific code is isolated behind Rust traits so porting requires im
 | `BlockDevice`        | `drivers::block`  | 8     | Sector read/write                    |
 | `NetDevice`          | `drivers::net`    | 10    | Packet TX/RX                         |
 | `UserContext`         | `arch::user`     | 10    | EL0 task isolation, syscalls          |
+| `SpiDevice`           | `arch::spi`      | 10.5  | SPI bus configure/transfer            |
+| `I2cDevice`           | `arch::i2c`      | 10.5  | I2C bus configure/read/write          |
+| `GpioController`      | `arch::gpio`     | 10.5  | GPIO pin mode/read/write              |
 
 ## Cargo Workspace Layout
 
@@ -74,8 +77,14 @@ tiny_os/
 │   ├── API_REFERENCE.md    # Complete API reference (shell, syscalls, HAL traits)
 │   └── USER_APP_GUIDE.md   # Developer's guide for writing user-space applications
 ├── examples/               # User-space applications (run at EL0 via syscalls)
-│   └── temp_monitor.rs     # Temperature monitor: reads SoC temp via SYS_TEMPERATURE,
-│                           #   tracks min/max/avg, prints periodic status (all .user.text)
+│   ├── temp_monitor/
+│   │   ├── main.rs         # Temperature monitor: reads SoC temp via SYS_TEMPERATURE,
+│   │   │                   #   tracks min/max/avg, prints periodic status (all .user.text)
+│   │   └── README.md       # Description and sample output
+│   └── sensor_gateway/
+│       ├── main.rs         # Industrial sensor gateway: collects SPI/I2C/GPIO data,
+│       │                   #   logs to SD card, forwards over UDP (all .user.text)
+│       └── README.md       # Description, syscall usage, scheduling context
 ├── kernel/                 # Main kernel binary crate
 │   ├── Cargo.toml
 │   ├── src/
@@ -85,7 +94,11 @@ tiny_os/
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
 │   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, exec [dynamic-load], yield, svc, reboot)
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
-│   │   ├── syscall.rs      # Syscall dispatch: SYS_YIELD, SYS_DELAY, SYS_WRITE, SYS_TASK_ID, SYS_UPTIME, SYS_EXIT, SYS_TEMPERATURE
+│   │   ├── syscall.rs      # Syscall dispatch: basic (SYS_YIELD..SYS_TEMPERATURE) and
+│   │   │                   #   subsystem multiplexed (SYS_FS, SYS_NET, SYS_SPI, SYS_I2C,
+│   │   │                   #   SYS_GPIO) with X0=operation, X1-X3=args
+│   │   ├── periph.rs       # Peripheral driver instances (SPI/I2C/GPIO): cfg-gated
+│   │   │                   #   RP1 drivers on Pi 5, stubs returning errors on QEMU
 │   │   ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs (.user.text section)
 │   │   ├── loader.rs       # [dynamic-load] ELF64 loader: parse headers, load PT_LOAD segments,
 │   │   │                   #   apply R_AARCH64_RELATIVE relocations, create per-task page tables
@@ -139,6 +152,9 @@ tiny_os/
 │       ├── dma.rs          # DmaEngine HAL trait (channel-based DMA transfers)
 │       ├── net.rs          # NetDevice HAL trait (packet TX/RX)
 │       ├── user.rs         # UserContext HAL trait (EL0 task isolation)
+│       ├── spi.rs          # SpiDevice HAL trait (configure, transfer, read, write)
+│       ├── i2c.rs          # I2cDevice HAL trait (configure, read, write, write_read)
+│       ├── gpio.rs         # GpioController HAL trait (set_mode, set_pull, read, write)
 │       └── aarch64/
 │           ├── mod.rs
 │           ├── boot.S      # _start, spin-table secondary parking, secondary_boot EL drop
@@ -157,11 +173,16 @@ tiny_os/
 ├── bsp/                    # Board Support Packages
 │   ├── Cargo.toml
 │   └── src/
-│       ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases, MAILBOX_BASE)
+│       ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases, MAILBOX_BASE,
+│       │                   #   Rp1Spi, Rp1I2c, Rp1Gpio on bsp-rpi5)
 │       ├── rpi5/
 │       │   ├── mod.rs
 │       │   ├── rp1_uart.rs
-│       │   └── memory_map.rs   # RP1 UART, GIC, RAM, MAILBOX_BASE, peripheral + RP1 MMIO regions
+│       │   ├── rp1_spi.rs      # RP1 SPI0 driver (DW_apb_ssi, polling mode)
+│       │   ├── rp1_i2c.rs      # RP1 I2C0 driver (DW_apb_i2c, polling mode)
+│       │   ├── rp1_gpio.rs     # RP1 GPIO driver (28 pins, pad control, RIO)
+│       │   └── memory_map.rs   # RP1 UART, SPI0, I2C0, GPIO bases, GIC, RAM,
+│       │                       #   MAILBOX_BASE, peripheral + RP1 MMIO regions
 │       └── qemu_virt/
 │           ├── mod.rs
 │           ├── uart.rs     # BCM2711 PL011 UART at 0xFE20_1000
@@ -376,16 +397,23 @@ make test                     # runs test-host then test-qemu
 - [x] `task_create_user` API: kernel stack + user stack + TTBR0 allocation
 - [x] TTBR0 swap in scheduler on context switch between tasks with different page tables
 - [x] Syscall dispatch via SVC #0: X8=syscall number, X0-X1=args, X0=return value
-- [x] Seven syscalls: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
+- [x] Seven basic syscalls: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
+- [x] Subsystem multiplexed syscalls: SYS_FS(10), SYS_NET(11), SYS_SPI(12), SYS_I2C(13), SYS_GPIO(14) with X0=operation, X1-X3=args
 - [x] `.user.text` linker section at 0x200000 (2MB-aligned) with EL0-accessible permissions
 - [x] User demo task: prints via sys_write, delays via sys_delay, runs indefinitely at EL0
 - [x] EL0 fault handling: data/prefetch abort from EL0 logs registers and terminates task
 - [x] DISCARD_SP pattern for task_terminate context switch (avoids cascading faults)
 - [x] VideoCore mailbox driver (`arch::aarch64::mailbox`): property tag interface, SoC temperature query (tag 0x00030006)
-- [x] User-space temperature monitor (`examples/temp_monitor.rs`): EL0 app reading SoC temperature via SYS_TEMPERATURE syscall, min/max/avg stats, 5s periodic output
+- [x] `SpiDevice` HAL trait (`arch::spi`), `I2cDevice` HAL trait (`arch::i2c`), `GpioController` HAL trait (`arch::gpio`)
+- [x] RP1 SPI0 driver (`bsp::rpi5::rp1_spi`): DW_apb_ssi, polling mode, 200 MHz ref clock
+- [x] RP1 I2C0 driver (`bsp::rpi5::rp1_i2c`): DW_apb_i2c, standard/fast mode, 200 MHz ref clock
+- [x] RP1 GPIO driver (`bsp::rpi5::rp1_gpio`): 28 pins, pad control, RIO set/clr registers
+- [x] Kernel peripheral manager (`kernel::periph`): cfg-gated RP1 driver instances on Pi 5, error stubs on QEMU
+- [x] User-space temperature monitor (`examples/temp_monitor/main.rs`): EL0 app reading SoC temperature via SYS_TEMPERATURE syscall, min/max/avg stats, 5s periodic output
+- [x] User-space sensor gateway (`examples/sensor_gateway/main.rs`): EL0 app collecting SPI/I2C/GPIO sensor data, SD card logging, UDP telemetry forwarding
 - [x] Shell commands: `ping <ip>`, `netstat` (ARP/socket/config), `ifconfig` (IP/MAC/link), `temp`
-- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, no faults, stable operation
-- [x] Both BSPs (QEMU and RPi5) build cleanly
+- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, sensor gateway (graceful hw fallback), no faults, stable operation
+- [x] Both BSPs (QEMU and RPi5) build cleanly, all 4 BSP×feature configurations pass
 
 ## Phase 11 Deliverables Checklist (next)
 

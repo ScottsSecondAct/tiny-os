@@ -1,6 +1,6 @@
 # Roadmap
 
-tiny_os is developed in 11 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
+tiny_os is developed in 12 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
 
 ---
 
@@ -194,15 +194,20 @@ Zero-copy network stack with loopback device for QEMU testing, BSD-style sockets
 - [x] ASID-tagged address spaces (8-bit ASID per user task), TLBI on TTBR0 switch
 - [x] `task_trampoline_user`: releases sched lock, sets SPSR_EL1=0 (EL0t), erets to user entry
 - [x] `task_create_user` API with kernel stack, user stack, and TTBR0 allocation
-- [x] Syscall dispatch via SVC #0: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
+- [x] Basic syscall dispatch via SVC #0: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
+- [x] Subsystem multiplexed syscalls: SYS_FS(10), SYS_NET(11), SYS_SPI(12), SYS_I2C(13), SYS_GPIO(14) with X0=operation, X1-X3=args
 - [x] `.user.text` linker section at 0x200000 with EL0-accessible permissions
 - [x] User demo task running at EL0, printing via syscalls
 - [x] EL0 fault handling: register dump + task termination, DISCARD_SP pattern for safe context switch
 - [x] VideoCore mailbox driver (`arch::aarch64::mailbox`): property tag interface, SoC temperature query (tag 0x00030006)
-- [x] User-space temperature monitor (`examples/temp_monitor.rs`): EL0 app reading SoC temperature via SYS_TEMPERATURE syscall, min/max/avg stats, 5s periodic output
+- [x] `SpiDevice`, `I2cDevice`, `GpioController` HAL traits with RP1 southbridge driver implementations
+- [x] RP1 SPI0 (DW_apb_ssi), I2C0 (DW_apb_i2c), GPIO (28-pin, pad control, RIO) — cfg-gated for bsp-rpi5
+- [x] Kernel peripheral manager (`periph.rs`): static driver instances, error stubs on QEMU
+- [x] User-space temperature monitor (`examples/temp_monitor/`): SoC temp via SYS_TEMPERATURE, min/max/avg stats
+- [x] User-space sensor gateway (`examples/sensor_gateway/`): SPI/I2C/GPIO data collection, SD card logging, UDP telemetry
 - [x] Shell commands: `ping <ip>`, `netstat`, `ifconfig`, `temp`
-- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, no faults, stable operation
-- [x] Both BSPs (QEMU and RPi5) build cleanly
+- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, sensor gateway with graceful hw fallback, no faults, stable operation
+- [x] Both BSPs (QEMU and RPi5) build cleanly, all 4 BSP×feature configurations pass
 
 ---
 
@@ -244,10 +249,88 @@ Produce the evidence and tooling required for IEC 61508 SIL-2, ISO 26262 ASIL-B,
 
 ---
 
+## Phase 12 — Extended Peripheral Support
+
+Complete hardware coverage for the remaining Pi 5 peripherals most relevant to RTOS and industrial applications. Adds new subsystem syscalls and HAL traits for peripherals not yet exposed to user space.
+
+**New syscalls:**
+- `SYS_UART` (15): User-space serial port access (open, read, write, configure baud/parity/flow)
+- `SYS_PWM` (16): Pulse-width modulation (configure, set duty cycle, enable/disable)
+- `SYS_RTC` (17): Real-time clock (get/set wall-clock time, set alarm)
+- `SYS_DMA` (18): User-space DMA transfers (configure channel, start, wait, abort)
+- `SYS_USB` (19): USB host operations (enumerate, bulk/interrupt transfer, HID input)
+- `SYS_CRYPTO` (20): Hardware-accelerated cryptography (AES, SHA-256, HMAC)
+- `SYS_POWER` (21): Power management (sleep modes, DVFS frequency scaling, voltage query)
+
+**Deliverables:**
+
+*RTC & Power:*
+- [ ] `RtcDevice` HAL trait: get/set time, alarm, calibration
+- [ ] BCM2712 RTC driver: battery-backed RTC with alarm interrupt
+- [ ] Power button handler: interrupt-driven, configurable action (shutdown/suspend/ignore)
+- [ ] Power management: CPU frequency scaling (DVFS via mailbox), WFI-based idle states
+- [ ] SYS_RTC and SYS_POWER syscall dispatch
+
+*PWM:*
+- [ ] `PwmDevice` HAL trait: configure channel, set frequency/duty, enable/disable
+- [ ] RP1 PWM driver: 2 channels on 40-pin header (GPIO 12/13 ALT0, GPIO 18/19 ALT5)
+- [ ] SYS_PWM syscall dispatch
+- [ ] Example: servo or LED dimming user-space app
+
+*UART (user-facing):*
+- [ ] `SerialPort` HAL trait: open, configure (baud/parity/stop/flow), read, write, close
+- [ ] RP1 UART1–UART5 drivers (separate from kernel console UART0)
+- [ ] SYS_UART syscall dispatch with fd-based access model
+
+*DMA (user-facing):*
+- [ ] User-space DMA syscall wrappers around existing `DmaEngine` HAL trait
+- [ ] Memory-to-memory and memory-to-peripheral transfer modes
+- [ ] DMA completion notification via task wakeup (not polling)
+- [ ] SYS_DMA syscall dispatch
+
+*USB Host:*
+- [ ] `UsbHostController` HAL trait: enumerate, configure endpoint, transfer (bulk/interrupt/control)
+- [ ] RP1 xHCI USB 3.0 driver: port power, device enumeration, bulk/interrupt transfers
+- [ ] USB mass storage class driver (read/write via BlockDevice trait)
+- [ ] USB HID class driver (keyboard/mouse input events)
+- [ ] SYS_USB syscall dispatch
+
+*Ethernet (real hardware):*
+- [ ] RP1 Gigabit Ethernet MAC driver: DMA ring descriptors, link negotiation, PHY management
+- [ ] Integrate with existing network stack (replace loopback on real hardware)
+- [ ] MDIO/PHY driver for link configuration and status
+- [ ] Shell `ifconfig` showing real link speed/duplex on Pi 5
+
+*Crypto:*
+- [ ] `CryptoEngine` HAL trait: AES-128/256, SHA-256, HMAC
+- [ ] ARMv8 Cryptography Extensions driver: AESE/AESD/SHA256H instructions
+- [ ] SYS_CRYPTO syscall dispatch
+- [ ] Example: secure sensor data signing user-space app
+
+*SDR104 high-speed SD:*
+- [ ] EMMC2 driver upgrade: SDR104 mode (208 MHz), ADMA2 DMA transfers
+- [ ] UHS-I voltage switching (1.8V signaling)
+- [ ] Benchmark: sequential read throughput comparison (PIO vs DMA)
+
+*Verification:*
+- [ ] All new HAL traits with cfg-gated RP1 implementations (Pi 5) and error stubs (QEMU)
+- [ ] Host-side unit tests for protocol parsing (USB descriptors, Ethernet frames, crypto vectors)
+- [ ] QEMU integration tests for new syscall numbers (E_NOSYS on unimplemented subsystems)
+- [ ] Both BSPs build cleanly across all feature flag combinations
+
+---
+
 ## Long-Term / Stretch Goals
 
+- VideoCore VII GPU: framebuffer, hardware-accelerated 2D, compute shaders via mailbox
+- HDMI display output: dual 4Kp60, mode setting via VideoCore firmware
+- MIPI CSI camera input: 4-lane MIPI receiver, frame capture, ISP pipeline
+- MIPI DSI display output: 4-lane MIPI transmitter, panel initialization
+- HEVC 4Kp60 hardware video decoder via VideoCore
+- Wi-Fi 802.11ac: CYW43455 driver (SDIO), WPA2/WPA3, AP mode
+- Bluetooth 5.0/BLE: CYW43455 HCI transport, GATT client/server
+- PCIe 2.0 x1 endpoint driver: NVMe storage, custom FPGA/accelerator boards
 - POSIX-compatible process model and `fork`/`exec`
-- USB host via RP1 (keyboard/storage)
 - Rust `#[async_fn]` cooperative tasks alongside preemptive tasks
 - Port to Cortex-M targets (RP2040, STM32)
 - Automated hardware-in-the-loop CI on real Pi 5
