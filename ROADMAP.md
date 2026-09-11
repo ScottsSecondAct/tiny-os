@@ -204,6 +204,27 @@ Zero-copy network stack with loopback device for QEMU testing, BSD-style sockets
 
 ---
 
+## Test Infrastructure ✅
+
+Two-tier testing accommodates the bare-metal workspace constraint (`aarch64-unknown-none` default target has no `std`).
+
+**Host-side unit tests** (`tests/host/`, 28 tests):
+- [x] IPv4 checksum and header parsing (12 tests): RFC 1071 example, corruption detection, protocol parsing
+- [x] Ethernet frame parsing (7 tests): EtherType demux, header validation, broadcast detection
+- [x] MBR partition table parsing (7 tests): FAT32/Linux/swap types, signature validation, multi-partition
+- [x] Separate `std` crate with `--target x86_64-pc-windows-msvc` override via Makefile
+
+**QEMU integration tests** (`tests/qemu/run_tests.ps1`, 13 checks):
+- [x] Boots kernel on QEMU raspi4b, captures serial output with 15s timeout
+- [x] Verifies: kernel banner, UART init, MMU, timer, scheduler, SMP cores 1-3, network loopback, filesystem mount, user task at EL0, shell prompt, no kernel panic
+- [x] Saves output to `tests/qemu/last_output.txt` for debugging
+
+**Workspace config:**
+- [x] `default-members` excludes `tests/host` from bare-metal builds
+- [x] Makefile targets: `make test` (both), `make test-host`, `make test-qemu`
+
+---
+
 ## Phase 11 — Safety Certification
 
 Produce the evidence and tooling required for IEC 61508 SIL-2, ISO 26262 ASIL-B, and DO-178C DAL-C certification.

@@ -2,10 +2,12 @@
 
 ```
 tiny_os/
-├── Cargo.toml              # Workspace root (members: kernel, arch, bsp)
+├── Cargo.toml              # Workspace root (members: kernel, arch, bsp, tests/host;
+│                           #   default-members exclude tests/host from bare-metal builds)
 ├── Cargo.lock              # Locked dependency versions
 ├── rust-toolchain.toml     # Pins nightly channel + aarch64-unknown-none target
-├── Makefile                # Convenience wrapper: make / make img / make qemu
+├── Makefile                # Build/test wrapper: make, make qemu, make img,
+│                           #   make test, make test-host, make test-qemu
 ├── config.txt              # Raspberry Pi 5 firmware config (bare-metal settings)
 ├── LICENSE                 # MIT
 ├── README.md
@@ -143,6 +145,23 @@ tiny_os/
             ├── dtb.rs      # Minimal FDT parser: extracts /memory node reg property
             ├── pmm.rs      # Bitmap page frame allocator: 1 bit per 4KB page, up to 4GB
             └── heap.rs     # Linked-list heap allocator: kmalloc/kfree, global stats
+
+tests/                      # Two-tier test infrastructure
+├── host/                   # Host-side unit tests (runs natively, not on bare-metal target)
+│   ├── Cargo.toml          # Separate std crate; requires --target x86_64-pc-windows-msvc
+│   └── src/
+│       ├── lib.rs          # Crate root: declares ipv4, ethernet, mbr test modules
+│       ├── ipv4.rs         # IPv4 checksum + header parsing (12 tests): RFC 1071,
+│       │                   #   corruption detection, protocol parsing, edge cases
+│       ├── ethernet.rs     # Ethernet frame parsing (7 tests): ethertype demux,
+│       │                   #   header validation, broadcast detection
+│       └── mbr.rs          # MBR partition table parsing (7 tests): FAT32/Linux/swap,
+│                           #   signature validation, multi-partition, size calculation
+└── qemu/
+    └── run_tests.ps1       # QEMU integration test runner: builds kernel, boots on
+                            #   raspi4b with 15s timeout, checks 13 serial output
+                            #   patterns (banner, MMU, timer, scheduler, SMP×3,
+                            #   network, filesystem, user mode, shell, no panic)
 ```
 
 ## Key Design Constraints

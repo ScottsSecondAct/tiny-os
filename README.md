@@ -73,12 +73,25 @@ UART output appears on stdout. Type `help` at the `tiny_os>` prompt. Press `Ctrl
 4. Insert the card, connect a USB-to-serial adapter to GPIO 14/15, open a
    terminal at **115200 8N1**, and power on.
 
+### Testing
+
+```sh
+make test          # run all tests (host unit + QEMU integration)
+make test-host     # host-side unit tests only (28 tests, no QEMU needed)
+make test-qemu     # QEMU integration tests only (13 boot verification checks)
+```
+
+Host-side tests verify pure-logic algorithms (IPv4 checksum, Ethernet/MBR parsing) natively. QEMU tests boot the kernel and check serial output for expected subsystem initialization.
+
 ### Other make targets
 
 | Target | Description |
 |---|---|
 | `make build` | Build ELF for Pi 5 (no objcopy) |
 | `make img` | Build Pi 5 `kernel8.img` flat binary |
+| `make test` | Run all tests (host + QEMU) |
+| `make test-host` | Host-side unit tests (pure-logic algorithms) |
+| `make test-qemu` | QEMU integration tests (boot verification) |
 | `make check-entry` | Verify `_start` is at `0x80000` |
 | `make clean` | Remove build artifacts |
 
@@ -91,6 +104,7 @@ tiny_os/
 ├── arch/       # AArch64 boot, exception vectors, GIC-400, timer, MMU, context switch, HAL traits
 ├── bsp/        # Board support: Pi 5 RP1 UART, QEMU PL011 UART, memory maps
 ├── kernel/     # Kernel entry, scheduler, sync, klog, watchdog, health, storage, fs (FAT32), net stack, syscalls, user tasks, netbuf, IRQ dispatch, memory mgmt, shell
+├── tests/      # Host unit tests (cargo test) + QEMU integration tests (boot verification)
 └── docs/       # Specifications and phase breakdown
 ```
 

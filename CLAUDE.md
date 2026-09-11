@@ -64,8 +64,9 @@ All hardware-specific code is isolated behind Rust traits so porting requires im
 
 ```
 tiny_os/
-├── Cargo.toml              # Workspace root
+├── Cargo.toml              # Workspace root (default-members exclude tests/host)
 ├── CLAUDE.md               # This file
+├── Makefile                # Build/test wrapper: make, make test, make test-host, make test-qemu
 ├── docs/                   # Specifications (markdown)
 │   ├── spec.md             # tiny_os system specification v1.1
 │   ├── scheduler_spec.md   # Scheduler subsystem specification
@@ -145,18 +146,28 @@ tiny_os/
 │           ├── context.rs  # Aarch64Context: new_context (fake frame), new_user_context, switch wrapper
 │           └── context_switch.S  # Context switch (x19-x30), task_trampoline (sched lock release),
 │                           #   task_trampoline_user (eret to EL0)
-└── bsp/                    # Board Support Packages
-    ├── Cargo.toml
-    └── src/
-        ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases)
-        ├── rpi5/
-        │   ├── mod.rs
-        │   ├── rp1_uart.rs
-        │   └── memory_map.rs   # RP1 UART, GIC, RAM, peripheral + RP1 MMIO regions
-        └── qemu_virt/
-            ├── mod.rs
-            ├── uart.rs     # BCM2711 PL011 UART at 0xFE20_1000
-            └── memory_map.rs   # UART, GIC, RAM, peripheral MMIO regions
+├── bsp/                    # Board Support Packages
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs          # cfg-gated re-exports (PlatformUart, GIC bases)
+│       ├── rpi5/
+│       │   ├── mod.rs
+│       │   ├── rp1_uart.rs
+│       │   └── memory_map.rs   # RP1 UART, GIC, RAM, peripheral + RP1 MMIO regions
+│       └── qemu_virt/
+│           ├── mod.rs
+│           ├── uart.rs     # BCM2711 PL011 UART at 0xFE20_1000
+│           └── memory_map.rs   # UART, GIC, RAM, peripheral MMIO regions
+└── tests/                  # Test infrastructure
+    ├── host/               # Host-side unit tests (cargo test, runs natively)
+    │   ├── Cargo.toml      # Separate crate; built with --target x86_64-pc-windows-msvc
+    │   └── src/
+    │       ├── lib.rs      # Crate root (declares test modules)
+    │       ├── ipv4.rs     # IPv4 checksum + header parsing tests (12 tests)
+    │       ├── ethernet.rs # Ethernet frame parsing tests (7 tests)
+    │       └── mbr.rs      # MBR partition table parsing tests (7 tests)
+    └── qemu/
+        └── run_tests.ps1   # QEMU integration test runner (13 boot verification checks)
 ```
 
 ## Scheduler Design (for reference in Phase 4+)
@@ -179,6 +190,32 @@ tiny_os/
 - **Assembly:** Use Rust `global_asm!()` for boot code and vector tables; inline `asm!()` for short sequences
 - **MMIO access:** Always via `core::ptr::read_volatile` / `write_volatile`, wrapped in typed register structs
 - **Logging:** Use `kprintln!()` for early boot; transition to `klog` subsystem in Phase 6
+
+## Testing
+
+Two-tier test infrastructure accommodates the bare-metal constraint (the workspace default target is `aarch64-unknown-none`, which has no `std`).
+
+### Host-side unit tests (28 tests)
+
+Pure-logic algorithms (checksums, parsers) re-implemented in `tests/host/` and tested natively with `cargo test`. The host-tests crate requires an explicit `--target` override because the workspace default target is bare-metal.
+
+```sh
+make test-host                # or: cargo test -p host-tests --target x86_64-pc-windows-msvc
+```
+
+### QEMU integration tests (13 checks)
+
+Boots the kernel on QEMU `raspi4b`, captures serial output, and verifies expected patterns (kernel banner, MMU, timer, scheduler, SMP cores, network, filesystem, user mode, shell prompt, no panic).
+
+```sh
+make test-qemu                # or: pwsh tests/qemu/run_tests.ps1
+```
+
+### Run all tests
+
+```sh
+make test                     # runs test-host then test-qemu
+```
 
 ## Completed Phases
 
