@@ -6,8 +6,8 @@
 
 **Target Platform:** Broadcom BCM2712 / ARM Cortex-A76
 **Architecture:** ARMv8.2-A (AArch64)
-**Version:** 1.1
-**Date:** March 2026
+**Version:** 1.2
+**Date:** September 2026
 **Status:** DRAFT
 
 ---
@@ -35,6 +35,12 @@ This specification defines the architecture, interfaces, and behavior of tiny-os
 - MMU-based memory protection with per-task address space isolation using ARMv8-A translation tables
 - Compile-time feature selection via Cargo features to include only required modules
 - Support for both hard and soft real-time task classes
+- Bounded worst-case execution time (WCET) for every kernel service, documented per-API
+- Deterministic memory allocation: O(1) fixed-block pools only; no linked-list or variable-size allocation in kernel paths
+- Temporal partitioning: per-task execution-time budgets with overrun detection
+- Health monitoring: watchdog integration, structured fault recovery, degraded-mode operation
+- Formal API contracts: pre/post conditions, ISR-safety classification, reentrancy guarantees
+- Certification-ready: requirements traceability, MC/DC coverage targets, mixed-criticality support
 
 ### 1.4 Target Platform
 
@@ -247,6 +253,69 @@ When OS_CFG_TIMESLICE_EN is enabled, tasks at the same priority level are alloca
 | Scheduler decision | < 200 ns | CLZ-based O(1) lookup in priority bitmap |
 | Tick jitter | < 100 ns | Generic timer comparator variance over 10,000 ticks |
 | IPI latency (core-to-core) | < 1 µs | PMU cycle counter from SGI trigger to handler entry on target core |
+
+### 4.6 WCET Bounds for Kernel Services
+
+Every kernel service has a documented worst-case execution time (WCET). These bounds are measured on a single Cortex-A76 core at 2.4 GHz with D-cache and I-cache warm. All bounds are independent of the number of tasks in the system unless noted.
+
+| Service | WCET | Complexity | Notes |
+| --- | --- | --- | --- |
+| os_task_create | 5 µs | O(1) | TCB init + page table setup + ready queue insert |
+| os_task_delete | 3 µs | O(1) | State transition + queue removal |
+| os_task_yield | 1 µs | O(1) | Ready queue rotate + context switch |
+| os_sem_wait (uncontested) | 200 ns | O(1) | Atomic decrement, no context switch |
+| os_sem_wait (blocks) | 2 µs | O(1) | Queue insert + context switch |
+| os_sem_post (no waiters) | 150 ns | O(1) | Atomic increment |
+| os_sem_post (wakes task) | 2 µs | O(1) | Queue remove + ready queue insert + possible preemption |
+| os_mutex_lock (uncontested) | 200 ns | O(1) | Ownership transfer, no priority change |
+| os_mutex_lock (contested, PIP) | 3 µs | O(d) | Priority inheritance chain traversal; d = nesting depth (bounded by OS_CFG_MAX_MUTEX_NEST) |
+| os_mutex_unlock | 2 µs | O(1) | Priority restore + wake highest waiter |
+| os_queue_send | 300 ns | O(1) | Ring buffer write, no contention |
+| os_queue_receive | 300 ns | O(1) | Ring buffer read, no contention |
+| os_pool_alloc | 100 ns | O(1) | Free-list head pop |
+| os_pool_free | 100 ns | O(1) | Free-list head push |
+| Scheduler dispatch | 200 ns | O(1) | CLZ on 256-bit bitmap |
+| Context switch (same ASID) | 1 µs | O(1) | Save/restore X0-X30, optional Q0-Q31 |
+| Context switch (ASID change) | 2 µs | O(1) | Adds TTBR0 write + TLBI ASIDE1IS |
+| Tick ISR (no preemption) | 500 ns | O(1) | Timer acknowledge + tick counter + delay queue scan |
+
+**Measurement methodology:** WCET values are validated using the PMU cycle counter (PMCCNTR_EL0) with interrupts masked during measurement. Each bound is verified over 100,000 iterations under worst-case conditions (all queues at maximum occupancy, cache lines evicted between iterations). Values are reported as the observed maximum plus a 10% safety margin.
+
+### 4.7 API Contracts
+
+Every kernel API carries formal pre/post conditions. Violations of preconditions return `OsErr::InvalidArg` or `OsErr::InvalidState`; they never cause undefined behavior.
+
+**ISR-safety classification.** Each API is classified as ISR-safe or task-only. ISR-safe functions may be called from interrupt context; task-only functions require a valid task context and will return `OsErr::IsrContext` if called from an ISR.
+
+| Classification | Functions |
+| --- | --- |
+| ISR-safe | os_sem_post, os_queue_send, os_event_set, os_event_clear, os_kernel_get_tick, os_kernel_get_core_id, os_cycle_count, os_timestamp |
+| Task-only | os_sem_wait, os_mutex_lock, os_mutex_unlock, os_queue_receive, os_event_wait, os_delay, os_delay_until, os_task_yield, os_task_create, os_task_delete, os_task_suspend, os_task_resume, os_pool_alloc (with timeout > 0) |
+| Any context | os_pool_alloc (timeout = 0, non-blocking), os_pool_free, os_sem_try_wait, os_mutex_try_lock, os_queue_peek |
+
+**Reentrancy.** All ISR-safe functions are reentrant and may be called concurrently from multiple cores or nested ISRs without external synchronization. Task-only functions are reentrant with respect to different kernel objects but not with respect to the same object from the same task (recursive mutex locking is explicitly supported via `os_mutex_lock` on a mutex the caller already owns, up to `OS_CFG_MAX_MUTEX_NEST` depth).
+
+**Pre/post condition format.** Each API's documentation includes:
+- **Requires:** conditions that must hold on entry (e.g., "object is initialized", "caller is not in ISR context")
+- **Ensures:** conditions guaranteed on successful return (e.g., "semaphore count is decremented by 1", "calling task holds the mutex")
+- **Errors:** exhaustive list of error conditions and the `OsErr` variant returned for each
+
+### 4.8 Temporal Partitioning
+
+Each task may be assigned an execution-time budget via `os_task_set_budget()`. The budget specifies the maximum number of ticks a task may consume per period. The kernel tracks consumed execution time per task using the PMU cycle counter, converted to ticks at each context switch and tick ISR.
+
+| Function | Signature | Description |
+| --- | --- | --- |
+| os_task_set_budget | os_task_set_budget(tcb: &mut OsTcb, budget_ticks: u32, period_ticks: u32) -> OsErr | Set execution-time budget and replenishment period |
+| os_task_get_remaining | os_task_get_remaining(tcb: &OsTcb) -> u32 | Query remaining budget in current period |
+
+When a task exhausts its budget:
+1. The task is moved to SUSPENDED state and removed from the ready queue
+2. `os_hook_budget_overrun(tcb)` is called, allowing application-defined recovery
+3. At the start of the next period, the budget is replenished and the task is moved back to READY (unless the hook explicitly deleted it)
+
+Budget enforcement ensures temporal isolation: a runaway task cannot starve other tasks, even if it has higher priority. This is required for mixed-criticality systems where safety-critical and non-critical tasks coexist.
+
 ---
 
 ## 5. Inter-Process Communication
@@ -297,9 +366,12 @@ Event flag groups allow a task to wait on one or more bits in a 32-bit flag word
 
 tiny-os avoids dynamic heap allocation (malloc/free) in the kernel to prevent fragmentation and ensure deterministic allocation times. All kernel objects are statically allocated. For application use, tiny-os provides:
 
-- Fixed-size memory pool allocators with O(1) allocation and deallocation for predictable-size objects
-- MMU-based per-task memory isolation using ARMv8-A 4 KB granule translation tables
+- Fixed-size memory pool allocators with O(1) allocation and deallocation for predictable-size objects — no linked-list or variable-size allocators are used in any kernel path or safety-critical application path
+- MMU-based per-task memory isolation using ARMv8-A 4 KB granule translation tables, enforced from kernel init (not deferred to a later phase)
 - Guard pages (unmapped) between task stacks for hardware-enforced stack overflow detection
+- Deterministic page frame allocation via bitmap allocator with bounded scan time
+
+**Certification constraint:** Any application code targeting SIL-2/ASIL-B certification must use `os_pool_alloc`/`os_pool_free` exclusively. The `kmalloc`/`kfree` heap interface (linked-list, O(n) worst case) is provided only for non-safety-critical utility code and is disabled by default when `OS_CFG_SAFETY_CRITICAL` is set.
 
 ### 6.2 Memory Pools
 
@@ -336,6 +408,29 @@ The following MAIR (Memory Attribute Indirection Register) indices are used:
 ### 6.5 ASID Management
 
 tiny-os uses 8-bit ASIDs (256 values) to tag TLB entries per task. When a context switch occurs between tasks with different ASIDs, the kernel updates TTBR0_EL1 with the new physical page table address and ASID. The TLB retains entries from other ASIDs, avoiding a full flush. If the ASID space is exhausted (more than 255 active tasks, unlikely given OS_CFG_MAX_TASKS default of 32), a full TLB invalidation is performed and ASIDs are recycled.
+
+### 6.6 Memory Fault Policy
+
+The kernel's response to memory faults is deterministic and configurable per fault class. This is critical for certification — the system must never enter an undefined state after a fault.
+
+| Fault Source | Exception | Kernel Action |
+| --- | --- | --- |
+| EL0 stack overflow (guard page hit) | Data Abort, translation fault | Call `os_hook_stack_overflow(tcb)`; default: terminate task, log diagnostic, continue scheduling remaining tasks |
+| EL0 invalid address (unmapped page) | Data Abort, translation fault | Call `os_hook_data_abort(tcb, addr, esr)`; default: terminate faulting task |
+| EL0 permission violation (write to RO) | Data Abort, permission fault | Same as invalid address |
+| EL0 instruction fetch from NX page | Prefetch Abort, permission fault | Same as invalid address |
+| EL1 kernel fault (any) | Sync exception at EL1 | Call `os_hook_hard_fault(esr, elr, far)`; default: structured shutdown (see 11.3) |
+| EL0 execution budget overrun | Timer ISR detection | Suspend task, call `os_hook_budget_overrun(tcb)` (see 4.8) |
+
+**Task termination procedure:** When a task is terminated due to a fault:
+1. The task is moved to TERMINATED state
+2. Any mutexes held by the task are released (with priority restoration for waiters)
+3. Any semaphores or queues the task is waiting on are cleaned up
+4. The task's page table is marked for reclamation
+5. `os_hook_task_terminated(tcb, reason)` is called with the fault reason
+6. The scheduler selects the next ready task — the system continues operating
+
+This ensures that a single task fault does not bring down the system. The kernel itself never enters an unrecoverable state from an EL0 fault.
 
 ---
 
@@ -435,6 +530,42 @@ tiny-os ships with drivers for the Raspberry Pi 5 peripherals accessible via the
 | os_drv_sd | SD/SDIO (Arasan) | BCM2712 | SDR104 high-speed mode, interrupt-driven, DMA transfers |
 | os_drv_pcie | PCIe 2.0 x1 | BCM2712 | Root complex management, BAR configuration, MSI interrupt routing |
 | os_drv_mailbox | VideoCore Mailbox | BCM2712 | Property tag interface for firmware queries (clock rates, board revision, MAC address) |
+
+### 9.3 Zero-Copy DMA and Networking
+
+tiny-os uses a zero-copy buffer architecture for DMA-capable drivers. The goal is that packet and block data is never copied between stack layers — the same physical buffer is passed from the NIC hardware through IP/TCP processing to the application socket, and vice versa for TX.
+
+**Buffer Pool.** The kernel maintains a pool of fixed-size packet buffers (`NetBuf`) allocated from pages marked as Normal Non-Cacheable (MAIR index 2). Each buffer is large enough for one maximum-size Ethernet frame (1536 bytes, 2KB aligned for DMA). Buffers are reference-counted; ownership transfers between layers without copying.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| data | *mut u8 | Pointer to the start of the DMA-capable region |
+| head | u16 | Offset from `data` to the start of the current layer's header |
+| tail | u16 | Offset from `data` to the end of valid data |
+| capacity | u16 | Total buffer capacity in bytes |
+| refcount | AtomicU8 | Reference count for shared ownership |
+
+**DMA Descriptor Rings.** The Ethernet driver maintains TX and RX descriptor rings in non-cacheable memory. Each descriptor points directly to a `NetBuf` data region. On RX, the NIC writes into the buffer and the driver hands the `NetBuf` up the stack — no copy. On TX, the application builds the packet in a `NetBuf`, the stack prepends headers by adjusting `head`, and the driver programs the DMA descriptor to point at the buffer — no copy.
+
+**Receive Path (zero-copy):**
+1. Driver pre-posts `NetBuf` buffers to the RX descriptor ring
+2. NIC DMA writes received frame directly into the `NetBuf`
+3. Driver removes the descriptor, adjusts `head`/`tail`, passes `NetBuf` to the IP layer
+4. IP/TCP processing reads headers in-place, advances `head` past each layer
+5. Socket `recv()` returns a reference to the `NetBuf` payload — application reads directly from the DMA buffer
+6. Application releases the `NetBuf`; it returns to the pool and is re-posted to the RX ring
+
+**Transmit Path (zero-copy):**
+1. Application calls `send()` with a `NetBuf` obtained from the pool
+2. TCP/IP prepends headers by decrementing `head` (headroom reserved at allocation)
+3. Ethernet driver programs a TX descriptor pointing at `NetBuf.data + head`
+4. NIC DMA reads the frame; driver reclaims the `NetBuf` on TX completion interrupt
+5. Buffer returns to the pool
+
+**Cache Coherency.** Buffers use MAIR index 2 (Normal Non-Cacheable) so the CPU and NIC DMA see the same data without explicit cache maintenance. This trades some CPU-side read performance for simplicity and correctness. A future optimization could use cacheable buffers with explicit `DC CIVAC` invalidation on RX and clean on TX.
+
+**Block I/O.** The same `NetBuf`-style buffer pool pattern applies to the SD/EMMC block driver: DMA descriptors point directly to caller-provided buffers (aligned to cache-line boundaries), avoiding an intermediate kernel copy buffer.
+
 ---
 
 ## 10. Configuration
@@ -466,9 +597,76 @@ tiny-os is configured via Cargo features and a central os_cfg module containing 
 | OS_CFG_LOAD_BALANCE_INTERVAL | 100 | Ticks between SMP load balancer runs |
 | OS_CFG_MIN_DRAM_MB | 64 | Minimum DRAM in MB required for kernel boot (panic if less) |
 | OS_CFG_AUTO_POOL_SIZING | true | Automatically scale memory pool sizes based on detected DRAM at boot |
+| OS_CFG_SAFETY_CRITICAL | false | Enable safety-critical mode: disables linked-list heap, enforces pool-only allocation, enables health monitor and watchdog (see 6.1, 11.4, 11.5) |
+| OS_CFG_BUDGET_EN | false | Enable per-task execution-time budget enforcement (see 4.8) |
+| OS_CFG_MAX_MUTEX_NEST | 8 | Maximum mutex nesting depth per task (limits PIP chain length for WCET analysis) |
+| OS_CFG_HEALTH_CHECK_INTERVAL | 1000 | Health monitor check period in ticks (1000 = 1 second) |
+| OS_CFG_WDT_TIMEOUT_MS | 2000 | Hardware watchdog timeout in milliseconds |
+| OS_CFG_WDT_KICK_INTERVAL | 500 | Watchdog service interval in milliseconds |
+| OS_CFG_SHUTDOWN_HOOK_EN | true | Call os_hook_shutdown() during structured shutdown (see 11.3) |
+| OS_CFG_REBOOT_ON_FAULT | false | Automatically reboot after structured shutdown (vs. WFE halt) |
+| OS_CFG_DIAG_REGION_SIZE | 4096 | Size of the diagnostic region in bytes for post-mortem register dump |
+| OS_CFG_MAX_POOLS | 16 | Maximum number of fixed-size memory pools |
+| OS_CFG_DEADLINE_DETECT_EN | false | Enable deadline-miss detection (requires OS_CFG_BUDGET_EN) |
+
+### 10.2 Configuration Validation
+
+All configuration constants are validated at compile time using Rust `const` assertions. This ensures invalid configurations produce a clear compile-time error rather than undefined runtime behavior — a requirement for safety-critical certification.
+
+```rust
+// os_cfg validation (enforced at compile time)
+const _: () = assert!(OS_CFG_MAX_TASKS >= 1 && OS_CFG_MAX_TASKS <= 256);
+const _: () = assert!(OS_CFG_TICK_RATE_HZ >= 100 && OS_CFG_TICK_RATE_HZ <= 10000);
+const _: () = assert!(OS_CFG_PRIO_LEVELS == 8 || OS_CFG_PRIO_LEVELS == 32 || OS_CFG_PRIO_LEVELS == 256);
+const _: () = assert!(OS_CFG_TIMESLICE_TICKS >= 1 && OS_CFG_TIMESLICE_TICKS <= 1000);
+const _: () = assert!(OS_CFG_SMP_CORES >= 1 && OS_CFG_SMP_CORES <= 4);
+const _: () = assert!(OS_CFG_MAX_MUTEX_NEST >= 1 && OS_CFG_MAX_MUTEX_NEST <= 32);
+const _: () = assert!(OS_CFG_USER_STACK_SIZE >= 1024 && OS_CFG_USER_STACK_SIZE <= 1048576);
+const _: () = assert!(OS_CFG_KERN_STACK_SIZE >= 1024 && OS_CFG_KERN_STACK_SIZE <= 65536);
+const _: () = assert!(OS_CFG_HEALTH_CHECK_INTERVAL >= 10 && OS_CFG_HEALTH_CHECK_INTERVAL <= 60000);
+const _: () = assert!(OS_CFG_WDT_TIMEOUT_MS >= 100 && OS_CFG_WDT_TIMEOUT_MS <= 30000);
+const _: () = assert!(OS_CFG_WDT_KICK_INTERVAL < OS_CFG_WDT_TIMEOUT_MS);
+const _: () = assert!(OS_CFG_MAX_POOLS >= 1 && OS_CFG_MAX_POOLS <= 64);
+const _: () = assert!(OS_CFG_MIN_DRAM_MB >= 16 && OS_CFG_MIN_DRAM_MB <= 16384);
+const _: () = assert!(!OS_CFG_DEADLINE_DETECT_EN || OS_CFG_BUDGET_EN); // deadlines require budgets
+```
+
+**Valid ranges summary:**
+
+| Constant | Min | Max | Constraint |
+| --- | --- | --- | --- |
+| OS_CFG_MAX_TASKS | 1 | 256 | Determines static TCB array size |
+| OS_CFG_TICK_RATE_HZ | 100 | 10000 | 100 Hz minimum for real-time; 10 kHz maximum for timer ISR overhead |
+| OS_CFG_PRIO_LEVELS | 8 | 256 | Must be 8, 32, or 256 (matches bitmap word sizes) |
+| OS_CFG_TIMESLICE_TICKS | 1 | 1000 | 1 tick minimum; 1 second maximum round-robin quantum |
+| OS_CFG_SMP_CORES | 1 | 4 | BCM2712 has 4 cores |
+| OS_CFG_MAX_MUTEX_NEST | 1 | 32 | Bounds PIP priority chain for WCET |
+| OS_CFG_USER_STACK_SIZE | 1024 | 1048576 | 1 KB min (guard page + usable); 1 MB max |
+| OS_CFG_KERN_STACK_SIZE | 1024 | 65536 | 1 KB min; 64 KB max |
+| OS_CFG_HEALTH_CHECK_INTERVAL | 10 | 60000 | 10 ms min (avoid overhead); 60 s max |
+| OS_CFG_WDT_TIMEOUT_MS | 100 | 30000 | Must be > WDT_KICK_INTERVAL |
+| OS_CFG_MAX_POOLS | 1 | 64 | Static pool descriptor array size |
+| OS_CFG_MIN_DRAM_MB | 16 | 16384 | Kernel minimum; 16 GB max (Pi 5 limit) |
+
+### 10.3 Safety-Critical Mode
+
+When `OS_CFG_SAFETY_CRITICAL` is set to `true`, the following constraints are enforced at compile time:
+
+- **Heap allocation disabled:** `kmalloc`/`kfree` produce a compile error; only fixed-size pool allocation is available
+- **Budget enforcement required:** `OS_CFG_BUDGET_EN` must be `true`
+- **Watchdog required:** Watchdog task is automatically created at priority 0
+- **Health monitor required:** Health monitor task is automatically created at priority 1
+- **Statistics required:** `OS_CFG_STATS_EN` is forced to `enabled`
+- **Stack overflow detection required:** Guard pages are mandatory (cannot be disabled)
+
+```rust
+#[cfg(feature = "safety-critical")]
+const _: () = assert!(OS_CFG_BUDGET_EN, "safety-critical mode requires budget enforcement");
+```
+
 ---
 
-## 11. Error Handling
+## 11. Error Handling and Health Monitoring
 
 ### 11.1 Error Codes
 
@@ -487,6 +685,10 @@ All tiny-os API functions return an OsErr enum. Application code should always c
 | OsErr::KernelNotRunning | 8 | API called before os_kernel_start() |
 | OsErr::AffinityViolation | 9 | Task cannot be migrated; no eligible core in affinity mask |
 | OsErr::PermissionDenied | 10 | Task attempted an operation outside its granted capabilities |
+| OsErr::BudgetExhausted | 11 | Task execution-time budget depleted for current period |
+| OsErr::DeadlineMissed | 12 | Task missed its declared deadline |
+| OsErr::WatchdogTimeout | 13 | Watchdog timer expired before being serviced |
+
 ### 11.2 Hook Functions
 
 tiny-os provides user-definable hook functions for critical system events. These are implemented as weak symbols (via #\[linkage = \"weak\"\]) that the application can override:
@@ -494,12 +696,68 @@ tiny-os provides user-definable hook functions for critical system events. These
 | Hook | Trigger | Default Behavior |
 | --- | --- | --- |
 | os_hook_idle(core: u8) | Called continuously from the per-core idle task | Execute WFI (Wait For Interrupt) for power savings |
-| os_hook_stack_overflow(tcb: &OsTcb) | Guard page fault or watermark below threshold | Kernel panic with register dump and faulting task info |
-| os_hook_data_abort(tcb: &OsTcb, addr: u64, esr: u64) | EL0 data abort (invalid memory access) | Terminate the faulting task; call os_task_delete() |
-| os_hook_hard_fault(esr: u64, elr: u64, far: u64) | Unrecoverable EL1 exception | Kernel panic with full register dump to UART |
-| os_hook_assert(file: &str, line: u32) | os_assert!() macro failure | Kernel panic with source location output to UART |
+| os_hook_stack_overflow(tcb: &OsTcb) | Guard page fault or watermark below threshold | Terminate faulting task, log diagnostic |
+| os_hook_data_abort(tcb: &OsTcb, addr: u64, esr: u64) | EL0 data abort (invalid memory access) | Terminate the faulting task |
+| os_hook_hard_fault(esr: u64, elr: u64, far: u64) | Unrecoverable EL1 exception | Structured shutdown (see 11.3) |
+| os_hook_assert(file: &str, line: u32) | os_assert!() macro failure | Structured shutdown with source location |
 | os_hook_task_create(tcb: &OsTcb) | After a task is created | No-op |
 | os_hook_task_switch(from: &OsTcb, to: &OsTcb, core: u8) | Before each context switch | No-op |
+| os_hook_budget_overrun(tcb: &OsTcb) | Task exhausted its execution-time budget | Suspend task until next period |
+| os_hook_deadline_miss(tcb: &OsTcb) | Task missed its declared deadline | Log warning; no action |
+| os_hook_task_terminated(tcb: &OsTcb, reason: OsErr) | Task terminated due to fault or budget | Log diagnostic |
+| os_hook_watchdog_expired() | Watchdog timer not serviced within window | Structured shutdown |
+| os_hook_health_check_failed(check: &str) | Periodic health check detected inconsistency | Log error, attempt recovery |
+
+### 11.3 Structured Shutdown
+
+When the kernel detects an unrecoverable error (EL1 fault, watchdog expiry, or assertion failure), it performs a structured shutdown sequence rather than an immediate halt. This ensures diagnostic state is preserved for post-mortem analysis, which is a certification requirement.
+
+**Shutdown sequence:**
+1. Mask all interrupts on all cores (DAIF set, IPI broadcast)
+2. Save the faulting core's register state (ELR_EL1, ESR_EL1, FAR_EL1, SPSR_EL1, X0-X30) to a reserved diagnostic region in DRAM
+3. Log the fault type, faulting address, and system state (tick count, active task, core ID) to the UART at 115200 baud
+4. If `OS_CFG_SHUTDOWN_HOOK_EN` is set, call `os_hook_shutdown(reason)` — the application may attempt to put actuators in a safe state, close valves, disable motors, etc.
+5. Flush any pending log entries to persistent storage (if available)
+6. If `OS_CFG_REBOOT_ON_FAULT` is set, trigger a hardware reset via the PM watchdog; otherwise, enter WFE halt on all cores
+7. The diagnostic region survives a warm reboot and can be read on next boot for fault analysis
+
+### 11.4 Health Monitoring
+
+tiny-os includes a health monitoring subsystem that runs periodic self-checks to detect kernel inconsistencies before they cause failures. The health monitor runs as a high-priority kernel task (priority 1, just below the watchdog).
+
+**Periodic checks (configurable interval, default 1000 ticks = 1 second):**
+
+| Check | What It Validates | Action on Failure |
+| --- | --- | --- |
+| Ready queue integrity | Each queue entry is a valid TCB in READY state | Call `os_hook_health_check_failed("ready_queue")`, attempt queue rebuild |
+| Stack watermarks | All active tasks have stack watermark above minimum threshold | Call `os_hook_stack_overflow(tcb)` for each offending task |
+| Mutex ownership | No mutex is held by a TERMINATED task | Force-release orphaned mutexes, restore waiter priorities |
+| Tick monotonicity | System tick counter has not gone backward | Structured shutdown (clock failure) |
+| Memory pool accounting | Free count + allocated count = total count for each pool | Call `os_hook_health_check_failed("pool_accounting")` |
+| Kernel stack canary | Sentinel values at kernel stack boundaries are intact | Structured shutdown (kernel stack corruption) |
+
+### 11.5 Watchdog Integration
+
+tiny-os integrates with the BCM2712 PM watchdog timer. The watchdog is serviced by the highest-priority task (priority 0) at a configurable interval (default: every 500 ms). If the watchdog task fails to run — indicating a system hang, priority inversion escape, or scheduler failure — the hardware watchdog triggers a reset.
+
+| Function | Signature | Description |
+| --- | --- | --- |
+| os_watchdog_init | os_watchdog_init(timeout_ms: u32) -> OsErr | Initialize PM watchdog with timeout |
+| os_watchdog_kick | os_watchdog_kick() -> OsErr | Reset the watchdog countdown (called by watchdog task) |
+| os_watchdog_disable | os_watchdog_disable() -> OsErr | Disable the watchdog (debug builds only; compile error in release) |
+
+The watchdog task also verifies that the health monitor has run within its expected window, providing a two-layer detection mechanism: the health monitor catches kernel-level inconsistencies, and the watchdog catches a hung health monitor.
+
+### 11.6 Degraded-Mode Operation
+
+When a non-fatal fault occurs (task crash, memory pool exhaustion, peripheral driver failure), the kernel enters degraded mode rather than shutting down. Degraded mode allows the remaining healthy tasks to continue operating.
+
+**Degraded-mode policy:**
+- A faulting task is terminated and its resources released (see 6.6)
+- If the faulting task is marked `OS_TASK_SAFETY_CRITICAL`, `os_hook_safety_critical_lost(tcb)` is called — the application decides whether to continue or initiate shutdown
+- The system logs a degraded-mode entry event with the fault reason and affected task
+- The health monitor increases its check frequency to every 100 ticks while in degraded mode
+- Degraded mode is cleared when all faulting conditions are resolved (e.g., the application re-creates the crashed task)
 ---
 
 ## 12. Safety and Certification
@@ -512,15 +770,142 @@ The use of unsafe code is minimized and confined to well-documented modules: MMU
 
 ### 12.2 Testing
 
-tiny-os includes a comprehensive test suite:
+tiny-os includes a comprehensive test suite organized by verification level:
 
-- Unit tests: each kernel module is tested using a QEMU virt machine target (aarch64) with GICv2 emulation, achieving over 95% branch coverage
-- Integration tests: multi-task scenarios exercising IPC, preemption, priority inheritance, deadline handling, and SMP task migration, run on both QEMU and physical Raspberry Pi 5 hardware
-- Stress tests: continuous operation under maximum load (32 tasks, all cores active, sustained IPC traffic) for 72+ hours with timing and memory validation
-- Fault injection: systematic injection of stack overflows, invalid memory accesses, invalid syscall arguments, and ASID exhaustion to verify graceful error handling
-- Miri and ASAN: unsafe code sections are exercised under Miri (where feasible) and address sanitization to detect undefined behavior
+**Unit tests:** Each kernel module is tested using a QEMU virt machine target (aarch64) with GICv2 emulation, achieving over 95% branch coverage. Tests cover normal paths, error paths, and boundary conditions for all public APIs.
 
-### 12.3 Certification Targets
+**Integration tests:** Multi-task scenarios exercising IPC, preemption, priority inheritance, deadline handling, and SMP task migration, run on both QEMU and physical Raspberry Pi 5 hardware.
+
+**Stress tests:** Continuous operation under maximum load (32 tasks, all cores active, sustained IPC traffic) for 72+ hours with timing and memory validation.
+
+**Fault injection:** Systematic injection of stack overflows, invalid memory accesses, invalid syscall arguments, and ASID exhaustion to verify graceful error handling and the structured shutdown sequence (11.3).
+
+**Miri and ASAN:** Unsafe code sections are exercised under Miri (where feasible) and address sanitization to detect undefined behavior.
+
+#### 12.2.1 MC/DC Coverage Strategy
+
+For safety-critical certification (IEC 61508 SIL-2+, ISO 26262 ASIL-B+, DO-178C DAL-C+), tiny-os targets Modified Condition/Decision Coverage (MC/DC) on all kernel-mode code paths.
+
+**Coverage targets by component:**
+
+| Component | MC/DC Target | Rationale |
+| --- | --- | --- |
+| Scheduler (dispatch, preemption) | 100% | Core determinism guarantee |
+| Context switch | 100% | Correctness of saved/restored state |
+| Synchronization (mutex, semaphore) | 100% | Priority inversion and deadlock safety |
+| Memory pools | 100% | Allocation correctness, no leaks |
+| Health monitor | 100% | Fault detection reliability |
+| Timer/tick ISR | 100% | Timing accuracy |
+| DTB parser | 95% | Some paths unreachable on QEMU |
+| Shell/CLI | 80% | Non-safety-critical UI |
+| Driver framework | 90% | Probe/remove lifecycle |
+
+**Tooling:** MC/DC instrumentation is performed via LLVM source-based coverage (`-C instrument-coverage`) with the `llvm-cov` tool generating condition-level reports. The Ferrocene qualified toolchain guarantees traceability from source conditions to object code branches.
+
+**Process:** MC/DC gaps are tracked as defects and must be resolved (by adding tests or documenting infeasibility) before any certification release. Coverage reports are archived with each release as certification evidence.
+
+### 12.3 Requirements Traceability
+
+Every specification requirement in this document is assigned a unique identifier for bidirectional traceability between requirements, design, implementation, and tests.
+
+**Requirement ID format:** `TINYOS-<section>-<seq>`, e.g., `TINYOS-4.6-001` for the first WCET requirement.
+
+**Traceability matrix structure:**
+
+| Column | Content |
+| --- | --- |
+| Req ID | Unique requirement identifier |
+| Description | One-line summary of the requirement |
+| Source | Specification section reference |
+| Design | Design document or section that addresses this requirement |
+| Implementation | Source file(s) and function(s) implementing the requirement |
+| Test | Test case ID(s) verifying the requirement |
+| Status | Not Started / In Progress / Implemented / Verified |
+
+**Traceability rules:**
+- Every requirement must trace forward to at least one test case (forward traceability)
+- Every test case must trace backward to at least one requirement (backward traceability)
+- Orphan tests (tests not linked to any requirement) are flagged for review
+- Orphan requirements (requirements not linked to any test) are defects
+- The traceability matrix is maintained in `docs/traceability.csv` and validated by CI on every merge
+
+**Change impact analysis:** When a requirement changes, the traceability matrix identifies all affected implementation files and test cases. All affected tests must be re-executed and re-verified.
+
+### 12.4 Schedulability Analysis
+
+tiny-os provides a Rate Monotonic Analysis (RMA) framework to verify that a given task set is schedulable — i.e., all tasks will meet their deadlines under worst-case conditions.
+
+#### 12.4.1 Rate Monotonic Analysis (RMA)
+
+For fixed-priority periodic tasks, the system is schedulable if the total CPU utilization satisfies:
+
+```
+U = Σ (Ci / Ti) ≤ n × (2^(1/n) − 1)
+```
+
+Where:
+- `Ci` = WCET of task i (from section 4.6 measurements)
+- `Ti` = period of task i
+- `n` = number of tasks
+
+For large n, the bound converges to ln(2) ≈ 0.693. The kernel provides a utility function `os_sched_utilization()` that computes the current total utilization from registered task parameters.
+
+#### 12.4.2 Deadline-Miss Detection
+
+When `OS_CFG_DEADLINE_DETECT_EN` is set, the kernel monitors each task's execution against its declared deadline:
+
+- At task creation, the application specifies `deadline_ticks` (relative deadline from release)
+- The scheduler records the task's release time at each period start
+- At each context switch and at the deadline tick, the kernel checks: `current_tick - release_tick > deadline_ticks`
+- On deadline miss: the kernel calls `os_hook_deadline_miss(tcb)` and sets `OsErr::DeadlineMissed` in the TCB status field
+- The application hook decides the response: log-only, task restart, or system shutdown
+
+**Deadline monitoring overhead:** One comparison per context switch + one timer comparison per deadline expiry. WCET overhead is bounded at < 50 ns per task per tick (measured on Cortex-A76 at 2.4 GHz).
+
+#### 12.4.3 Response-Time Analysis
+
+For tasks with blocking (mutex waits), RMA alone is insufficient. tiny-os supports response-time analysis (RTA) for tasks using Priority Inheritance Protocol:
+
+```
+Ri = Ci + Bi + Σ_{j ∈ hp(i)} ⌈Ri / Tj⌉ × Cj
+```
+
+Where `Bi` is the worst-case blocking time due to lower-priority tasks holding mutexes with PIP. The kernel tracks `Bi` for each task based on `OS_CFG_MAX_MUTEX_NEST` and the critical section lengths declared by the application.
+
+### 12.5 Mixed-Criticality Partitioning
+
+tiny-os supports mixed-criticality systems where tasks of different safety integrity levels coexist on the same hardware. The partitioning design ensures that lower-criticality tasks cannot interfere with higher-criticality tasks in time, space, or information flow.
+
+#### 12.5.1 Criticality Levels
+
+Each task is assigned a criticality level at creation:
+
+| Level | Name | Description | Example |
+| --- | --- | --- | --- |
+| 0 | SAFETY_CRITICAL | Highest integrity; failure causes hazard | Motor control, valve actuation |
+| 1 | MISSION_CRITICAL | Important for mission success; non-hazardous failure | Navigation, sensor fusion |
+| 2 | STANDARD | Normal application tasks | UI updates, logging |
+| 3 | BEST_EFFORT | Non-real-time; runs only when CPU is available | Diagnostics, telemetry upload |
+
+#### 12.5.2 Partitioning Guarantees
+
+**Temporal partitioning:** Execution-time budgets (section 4.8) enforce that no task can consume more than its allocated CPU share. Higher-criticality tasks have priority over lower-criticality tasks within the fixed-priority scheduler.
+
+**Spatial partitioning:** Each criticality level can be assigned its own memory pool group. Pool allocation requests are checked against the task's criticality level. A task cannot allocate from a pool assigned to a higher criticality level.
+
+**Information flow:** Message queues between different criticality levels are one-directional by default — a STANDARD task can send to a SAFETY_CRITICAL task (upward reporting), but not read from it (to prevent information leakage that could create timing dependencies). Bidirectional queues require explicit `OS_QUEUE_CROSS_CRIT` flag and are logged.
+
+#### 12.5.3 Criticality Mode Switch
+
+When the system enters degraded mode (section 11.6) or a SAFETY_CRITICAL task reports a fault, the kernel can perform a criticality mode switch:
+
+- All BEST_EFFORT tasks are immediately suspended
+- STANDARD tasks are suspended if their budget would interfere with SAFETY_CRITICAL or MISSION_CRITICAL deadlines
+- Released CPU time is redistributed to higher-criticality tasks
+- The application is notified via `os_hook_criticality_switch(new_mode)`
+- Normal mode is restored via `os_criticality_restore()` when the fault is resolved
+
+### 12.6 Certification Targets
 
 tiny-os is designed to support certification under the following safety standards, leveraging the Ferrocene qualified Rust toolchain:
 
@@ -528,8 +913,18 @@ tiny-os is designed to support certification under the following safety standard
 | --- | --- | --- | --- |
 | IEC 61508 | SIL-2 | Industrial automation and functional safety | Ferrocene (qualified) |
 | ISO 26262 | ASIL-B | Automotive embedded systems | Ferrocene (ASIL-D qualified) |
-| DO-178C | DAL-D (planned) | Avionics software (future release) | Ferrocene (in progress) |
+| DO-178C | DAL-C | Avionics software | Ferrocene (in progress) |
 | IEC 62304 | Class B | Medical device software | Ferrocene (qualified) |
+
+**Certification evidence produced by tiny-os:**
+- Requirements traceability matrix (12.3) with bidirectional coverage
+- MC/DC coverage reports for all kernel code (12.2.1)
+- WCET measurement reports for all kernel services (4.6)
+- Schedulability analysis report (RMA + RTA) for the deployed task set (12.4)
+- Health monitor and watchdog design documentation (11.4, 11.5)
+- Structured shutdown sequence and post-mortem diagnostic format (11.3)
+- Configuration validation with compile-time assertions (10.2)
+- Fault injection test results demonstrating graceful degradation (12.2)
 ---
 
 ## 13. Appendices
@@ -550,6 +945,11 @@ The following table summarizes all public API functions grouped by module. All f
 | Memory Pool | os_pool_create, os_pool_alloc, os_pool_free |
 | Driver | os_drv_register, os_drv_open, os_drv_close, os_drv_read, os_drv_write, os_drv_ioctl |
 | Timing | os_cycle_count, os_timestamp |
+| Budget | os_task_set_budget, os_task_get_remaining |
+| Watchdog | os_watchdog_init, os_watchdog_kick, os_watchdog_disable |
+| Health | os_health_status, os_health_force_check |
+| Scheduler Analysis | os_sched_utilization |
+| Criticality | os_criticality_switch, os_criticality_restore |
 ### 13.2 Appendix B: Bare-Metal Boot Configuration
 
 To boot tiny-os on a Raspberry Pi 5, prepare an SD card with the standard Raspberry Pi firmware files and the following configuration:

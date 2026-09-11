@@ -1,6 +1,6 @@
 # Roadmap
 
-tiny_os is developed in 10 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
+tiny_os is developed in 11 progressive phases. Each phase builds on the previous and has a defined set of deliverables. Phases marked ✅ are complete.
 
 ---
 
@@ -71,6 +71,10 @@ Preemptive multitasking with a 256-level fixed-priority scheduler.
 - [ ] Preemption from timer tick ISR
 - [ ] `task_create`, `task_delete`, `task_suspend`, `task_resume` API
 - [ ] Critical sections: DAIF masking with nesting count
+- [ ] Per-task execution-time budget enforcement (`os_task_set_budget`, `os_task_get_remaining`)
+- [ ] Deadline-miss detection (`OS_CFG_DEADLINE_DETECT_EN`) with `os_hook_deadline_miss` callback
+- [ ] Task criticality levels (SAFETY_CRITICAL, MISSION_CRITICAL, STANDARD, BEST_EFFORT)
+- [ ] `os_sched_utilization()` for Rate Monotonic Analysis validation
 
 ---
 
@@ -85,6 +89,8 @@ Blocking synchronization objects with priority inversion protection.
 - [ ] Event flags
 - [ ] Timeout support on all blocking operations (integrates with Phase 2 timer)
 - [ ] Deadlock detection (debug builds)
+- [ ] Mixed-criticality queue enforcement: `OS_QUEUE_CROSS_CRIT` flag for bidirectional cross-criticality messaging
+- [ ] Mutex nesting depth limit (`OS_CFG_MAX_MUTEX_NEST`) for bounded PIP chain / WCET analysis
 
 ---
 
@@ -98,6 +104,10 @@ A structured driver registry and a kernel logging subsystem to replace early `kp
 - [ ] SPI and I²C drivers via RP1 (basic)
 - [ ] `klog` subsystem: log levels (ERROR, WARN, INFO, DEBUG, TRACE), timestamps, module tags
 - [ ] Ring-buffer log drain (accessible via shell in Phase 9)
+- [ ] Health monitoring task: ready queue integrity, stack watermarks, mutex ownership, tick monotonicity, pool accounting, kernel stack canary
+- [ ] PM watchdog integration: `os_watchdog_init`, `os_watchdog_kick`, automatic kick task at priority 0
+- [ ] Structured shutdown sequence: register dump, diagnostic region, `os_hook_shutdown`, optional reboot
+- [ ] Degraded-mode operation: task-level fault isolation, criticality mode switch (`os_criticality_switch`)
 
 ---
 
@@ -116,14 +126,15 @@ Bring up all four Cortex-A76 cores and extend the scheduler for multi-core opera
 
 ---
 
-## Phase 8 — Storage
+## Phase 8 — Storage & DMA
 
-SD card access via BCM2712 EMMC2 and a lightweight block layer.
+SD card access via BCM2712 EMMC2, a DMA engine, and zero-copy buffer pool.
 
 **Deliverables:**
+- [ ] DMA engine driver (`DmaEngine` HAL trait): descriptor ring management, completion IRQ
+- [ ] Zero-copy buffer pool (`NetBuf`): fixed-size DMA-capable buffers in non-cacheable memory (MAIR index 2), reference-counted, headroom for header prepend
 - [ ] EMMC2 / SDIO driver (`emmc2.rs`): CMD0/2/3/7/8/9/17/18/24/25 support
-- [ ] `BlockDevice` HAL trait: sector read/write
-- [ ] DMA engine driver (`DmaEngine` trait) for zero-copy block transfers
+- [ ] `BlockDevice` HAL trait: sector read/write with caller-provided aligned buffers (no intermediate copy)
 - [ ] Partition table parsing (MBR)
 - [ ] Block cache (simple LRU, write-back)
 
@@ -145,16 +156,35 @@ FAT32 filesystem and an interactive kernel shell over UART.
 
 ## Phase 10 — Networking & User Mode
 
-Gigabit Ethernet via RP1, a TCP/IP stack, BSD-style sockets, and EL0 user tasks.
+Gigabit Ethernet via RP1, a zero-copy TCP/IP stack, BSD-style sockets, and EL0 user tasks. The entire RX and TX data path uses the `NetBuf` pool from Phase 8 — no buffer copies between layers.
 
 **Deliverables:**
-- [ ] RP1 Gigabit Ethernet driver (`rp1_eth.rs`)
-- [ ] `NetDevice` HAL trait: packet TX/RX
-- [ ] ARP, IPv4, ICMP (ping), UDP, TCP (basic state machine)
+- [ ] RP1 Gigabit Ethernet driver (`rp1_eth.rs`): TX/RX descriptor rings pointing to `NetBuf` buffers, MDIO PHY management
+- [ ] `NetDevice` HAL trait: zero-copy packet TX/RX (accepts/returns `NetBuf` references, not byte slices)
+- [ ] Zero-copy RX path: NIC DMA → `NetBuf` → IP/TCP header parse in-place → socket `recv()` returns buffer reference
+- [ ] Zero-copy TX path: app writes to `NetBuf` → TCP/IP prepend headers via `head` adjust → DMA descriptor → NIC transmit → buffer reclaim
+- [ ] ARP, IPv4, ICMP (ping), UDP, TCP (basic state machine) — all operating on `NetBuf` without intermediate copies
 - [ ] BSD socket API: `socket`, `bind`, `connect`, `send`, `recv`, `close`
 - [ ] EL0 user task support: `UserContext` HAL trait, EL1→EL0 drop, syscall table
 - [ ] Memory isolation: per-task address space (extends Phase 3 VMM)
 - [ ] `ping` and `httpget` demo tasks
+
+---
+
+## Phase 11 — Safety Certification
+
+Produce the evidence and tooling required for IEC 61508 SIL-2, ISO 26262 ASIL-B, and DO-178C DAL-C certification.
+
+**Deliverables:**
+- [ ] `os_cfg` module with compile-time validation (`const` assertions for all `OS_CFG_*` constants)
+- [ ] Safety-critical mode (`OS_CFG_SAFETY_CRITICAL`): pool-only allocation, mandatory budgets/watchdog/health monitor
+- [ ] Requirements traceability matrix (`docs/traceability.csv`) with bidirectional coverage
+- [ ] MC/DC coverage instrumentation via LLVM `-C instrument-coverage`, per-component targets (100% scheduler/sync, 90%+ drivers)
+- [ ] WCET measurement harness: cycle-counter instrumentation for all kernel services (spec section 4.6)
+- [ ] Schedulability analysis tool: RMA utilization check + response-time analysis with PIP blocking
+- [ ] Fault injection test suite: stack overflow, invalid memory, budget exhaustion, watchdog timeout
+- [ ] Certification evidence package: coverage reports, WCET reports, traceability matrix, shutdown logs
+- [ ] Ferrocene qualified toolchain integration and build-system support
 
 ---
 
