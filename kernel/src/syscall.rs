@@ -7,6 +7,7 @@ const SYS_WRITE: u64 = 2;
 const SYS_TASK_ID: u64 = 3;
 const SYS_UPTIME: u64 = 4;
 const SYS_EXIT: u64 = 5;
+const SYS_TEMPERATURE: u64 = 6;
 
 pub fn dispatch(tf: &mut TrapFrame) {
     let syscall_nr = tf.regs[8];
@@ -44,6 +45,12 @@ pub fn dispatch(tf: &mut TrapFrame) {
             kprintln!("[syscall] task {} called exit", id);
             sched::task_terminate(id);
             0
+        }
+        SYS_TEMPERATURE => {
+            match arch::aarch64::mailbox::get_temperature() {
+                Some(mc) => mc as u64,
+                None => u64::MAX,
+            }
         }
         _ => {
             kprintln!("[syscall] unknown syscall {}", syscall_nr);

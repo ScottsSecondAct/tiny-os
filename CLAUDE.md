@@ -6,7 +6,7 @@ tiny_os is a bare-metal real-time operating system written in Rust, targeting th
 
 ## Current Phase
 
-**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit). CPU temperature monitor via VideoCore mailbox (property tag 0x00030006): periodic sensor readings, ring buffer history, filesystem logging, shell `temp` command. Shell commands: `ping`, `netstat`, `ifconfig`, `temp`. User demo task runs at EL0 printing via syscalls. Next up: Phase 11 (Safety Certification).
+**Phase 10: Networking & User Mode** — complete. Zero-copy network stack with loopback device for QEMU testing: Ethernet, ARP, IPv4, ICMP, UDP, TCP (minimal client state machine), BSD socket API. EL0 user-mode task support: per-task TTBR0 page tables (L3 4KB granularity with guard pages), ASID-tagged address spaces, `task_trampoline_user` (eret to EL0), SVC-based syscall dispatch (yield, delay, write, task_id, uptime, exit, temperature). User-space temperature monitor app in `examples/` reads SoC temperature via SYS_TEMPERATURE syscall, tracks min/max/avg statistics. Shell commands: `ping`, `netstat`, `ifconfig`, `temp`. Next up: Phase 11 (Safety Certification).
 
 ## Target Hardware
 
@@ -71,6 +71,9 @@ tiny_os/
 │   ├── spec.md             # tiny_os system specification v1.1
 │   ├── scheduler_spec.md   # Scheduler subsystem specification
 │   └── phases.md           # Implementation phases breakdown
+├── examples/               # User-space applications (run at EL0 via syscalls)
+│   └── temp_monitor.rs     # Temperature monitor: reads SoC temp via SYS_TEMPERATURE,
+│                           #   tracks min/max/avg, prints periodic status (all .user.text)
 ├── kernel/                 # Main kernel binary crate
 │   ├── Cargo.toml
 │   ├── src/
@@ -79,9 +82,8 @@ tiny_os/
 │   │   ├── print.rs        # kprint!() / kprintln!() macros
 │   │   ├── exceptions.rs   # IRQ dispatch, sync/SVC handler, unhandled trap
 │   │   ├── shell.rs        # Interactive UART shell (help, uptime, ticks, info, mem, tasks, log, health, smp, sd, sdread, ls, cat, hexdump, touch, write, ping, netstat, ifconfig, temp, yield, svc, reboot)
-│   │   ├── sensor.rs       # CPU temperature monitor: 5s readings, 60-entry ring buffer, stats, /TEMP.LOG
 │   │   ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B buffers in NC memory
-│   │   ├── syscall.rs      # Syscall dispatch: SYS_YIELD, SYS_DELAY, SYS_WRITE, SYS_TASK_ID, SYS_UPTIME, SYS_EXIT
+│   │   ├── syscall.rs      # Syscall dispatch: SYS_YIELD, SYS_DELAY, SYS_WRITE, SYS_TASK_ID, SYS_UPTIME, SYS_EXIT, SYS_TEMPERATURE
 │   │   ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs (.user.text section)
 │   │   ├── net/            # Network stack subsystem
 │   │   │   ├── mod.rs      # Network init, RX dispatch, net_task poll loop
@@ -370,15 +372,15 @@ make test                     # runs test-host then test-qemu
 - [x] `task_create_user` API: kernel stack + user stack + TTBR0 allocation
 - [x] TTBR0 swap in scheduler on context switch between tasks with different page tables
 - [x] Syscall dispatch via SVC #0: X8=syscall number, X0-X1=args, X0=return value
-- [x] Six syscalls: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5)
+- [x] Seven syscalls: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
 - [x] `.user.text` linker section at 0x200000 (2MB-aligned) with EL0-accessible permissions
 - [x] User demo task: prints via sys_write, delays via sys_delay, runs indefinitely at EL0
 - [x] EL0 fault handling: data/prefetch abort from EL0 logs registers and terminates task
 - [x] DISCARD_SP pattern for task_terminate context switch (avoids cascading faults)
 - [x] VideoCore mailbox driver (`arch::aarch64::mailbox`): property tag interface, SoC temperature query (tag 0x00030006)
-- [x] CPU temperature monitor (`kernel::sensor`): 5s readings, 60-entry ring buffer, min/max/avg stats, /TEMP.LOG every 60s, 80°C alert threshold
-- [x] Shell commands: `ping <ip>`, `netstat` (ARP/socket/config), `ifconfig` (IP/MAC/link), `temp` (current/stats/history)
-- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature sensor, no faults, stable operation
+- [x] User-space temperature monitor (`examples/temp_monitor.rs`): EL0 app reading SoC temperature via SYS_TEMPERATURE syscall, min/max/avg stats, 5s periodic output
+- [x] Shell commands: `ping <ip>`, `netstat` (ARP/socket/config), `ifconfig` (IP/MAC/link), `temp`
+- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, no faults, stable operation
 - [x] Both BSPs (QEMU and RPi5) build cleanly
 
 ## Phase 11 Deliverables Checklist (next)

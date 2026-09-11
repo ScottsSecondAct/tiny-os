@@ -11,7 +11,8 @@ pub mod klog;
 mod mm;
 pub mod netbuf;
 pub mod sched;
-pub mod sensor;
+#[path = "../../examples/temp_monitor.rs"]
+mod temp_monitor;
 mod shell;
 pub mod syscall;
 pub mod spinlock;
@@ -41,11 +42,12 @@ static mut DEMO_STACK_B: TaskStack<8192> = TaskStack([0; 8192]);
 static mut WATCHDOG_STACK: TaskStack<4096> = TaskStack([0; 4096]);
 static mut HEALTH_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut NET_STACK: TaskStack<8192> = TaskStack([0; 8192]);
-static mut SENSOR_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 static mut USER_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
+static mut TEMP_KERNEL_STACK: TaskStack<8192> = TaskStack([0; 8192]);
 #[repr(align(4096))]
 struct UserStack([u8; 16384]);
 static mut USER_STACK: UserStack = UserStack([0; 16384]);
+static mut TEMP_USER_STACK: UserStack = UserStack([0; 16384]);
 
 // Per-secondary-core boot stacks (referenced by boot.S via SECONDARY_STACKS).
 #[repr(align(16))]
@@ -248,24 +250,19 @@ pub extern "C" fn kmain() -> ! {
     sched::task_create("net", 5, Criticality::Standard, net_stack, net::net_task, 0)
         .expect("failed to create net task");
 
-    // Create sensor monitoring task.
-    let sensor_stack = unsafe { &mut SENSOR_STACK.0[..] };
-    sched::task_create("sensor", 8, Criticality::Standard, sensor_stack, sensor::sensor_task, 0)
-        .expect("failed to create sensor task");
-
-    // Create EL0 user demo task.
-    let user_entry = user_tasks::user_demo as *const () as usize;
-    let user_stack_base = unsafe { &raw const USER_STACK.0 as usize };
-    let user_stack_size = 16384;
-    let user_stack_top = user_stack_base + user_stack_size;
-    let user_stack_pages = user_stack_size / 4096;
-
+    // Shared user code region for all EL0 tasks.
     extern "C" {
         static __user_text_start: u8;
         static __user_text_end: u8;
     }
     let code_base = unsafe { &raw const __user_text_start as usize };
     let code_size = unsafe { &raw const __user_text_end as usize - code_base };
+    let user_stack_pages = 16384 / 4096;
+
+    // Create EL0 user demo task.
+    let user_entry = user_tasks::user_demo as *const () as usize;
+    let user_stack_base = unsafe { &raw const USER_STACK.0 as usize };
+    let user_stack_top = user_stack_base + 16384;
 
     let ttbr0 = unsafe {
         mmu::create_user_page_table(code_base, code_size, user_stack_base, user_stack_pages)
@@ -276,6 +273,21 @@ pub extern "C" fn kmain() -> ! {
         "user-demo", 100, Criticality::Standard,
         user_kernel_stack, user_entry, user_stack_top, 0, ttbr0,
     ).expect("failed to create user demo task");
+
+    // Create EL0 temperature monitor task (examples/temp_monitor.rs).
+    let temp_entry = temp_monitor::temp_monitor_main as *const () as usize;
+    let temp_stack_base = unsafe { &raw const TEMP_USER_STACK.0 as usize };
+    let temp_stack_top = temp_stack_base + 16384;
+
+    let temp_ttbr0 = unsafe {
+        mmu::create_user_page_table(code_base, code_size, temp_stack_base, user_stack_pages)
+    };
+
+    let temp_kernel_stack = unsafe { &mut TEMP_KERNEL_STACK.0[..] };
+    sched::task_create_user(
+        "temp-mon", 100, Criticality::Standard,
+        temp_kernel_stack, temp_entry, temp_stack_top, 0, temp_ttbr0,
+    ).expect("failed to create temp monitor task");
 
     kprintln!("sched: {} tasks created on core 0", sched::task_count());
 

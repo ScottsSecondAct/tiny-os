@@ -194,14 +194,14 @@ Zero-copy network stack with loopback device for QEMU testing, BSD-style sockets
 - [x] ASID-tagged address spaces (8-bit ASID per user task), TLBI on TTBR0 switch
 - [x] `task_trampoline_user`: releases sched lock, sets SPSR_EL1=0 (EL0t), erets to user entry
 - [x] `task_create_user` API with kernel stack, user stack, and TTBR0 allocation
-- [x] Syscall dispatch via SVC #0: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5)
+- [x] Syscall dispatch via SVC #0: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2), SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
 - [x] `.user.text` linker section at 0x200000 with EL0-accessible permissions
 - [x] User demo task running at EL0, printing via syscalls
 - [x] EL0 fault handling: register dump + task termination, DISCARD_SP pattern for safe context switch
 - [x] VideoCore mailbox driver (`arch::aarch64::mailbox`): property tag interface, SoC temperature query (tag 0x00030006)
-- [x] CPU temperature monitor (`kernel::sensor`): 5s readings, 60-entry ring buffer, min/max/avg stats, /TEMP.LOG every 60s, 80°C alert
-- [x] Shell commands: `ping <ip>`, `netstat`, `ifconfig`, `temp` (current/stats/history)
-- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature sensor, no faults, stable operation
+- [x] User-space temperature monitor (`examples/temp_monitor.rs`): EL0 app reading SoC temperature via SYS_TEMPERATURE syscall, min/max/avg stats, 5s periodic output
+- [x] Shell commands: `ping <ip>`, `netstat`, `ifconfig`, `temp`
+- [x] Verified on QEMU: loopback ping, user task at EL0, syscalls, temperature monitor, no faults, stable operation
 - [x] Both BSPs (QEMU and RPi5) build cleanly
 
 ---

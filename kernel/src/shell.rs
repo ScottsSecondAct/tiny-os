@@ -1,5 +1,5 @@
-use crate::{kprint, kprintln, fs, klog, mm, net, netbuf, sched, sensor, storage, watchdog};
-use arch::aarch64::{emmc2, exceptions};
+use crate::{kprint, kprintln, fs, klog, mm, net, netbuf, sched, storage, watchdog};
+use arch::aarch64::{emmc2, exceptions, mailbox};
 use arch::aarch64::mmu;
 use arch::aarch64::smp;
 use arch::aarch64::timer;
@@ -90,7 +90,7 @@ fn dispatch(cmd: &str) {
             kprintln!("commands: help, uptime, ticks, info, mem, tasks, log, health,");
             kprintln!("          smp, sd, sdread <lba>, ls [path], cat <path>,");
             kprintln!("          hexdump <path>, touch <path>, write <path> <text>,");
-            kprintln!("          ping <ip>, netstat, ifconfig, temp [history [N]],");
+            kprintln!("          ping <ip>, netstat, ifconfig, temp,");
             kprintln!("          yield, svc, reboot");
         }
         "uptime" => {
@@ -375,22 +375,9 @@ fn dispatch(cmd: &str) {
                 net::our_mac()[3], net::our_mac()[4], net::our_mac()[5]);
         }
         "temp" => {
-            match sensor::current() {
-                Some(mc) => {
-                    kprintln!("current: {}.{}C", mc / 1000, ((mc % 1000).abs()) / 100);
-                    let (min, max, avg, count) = sensor::stats();
-                    kprintln!("min:     {}.{}C", min / 1000, ((min % 1000).abs()) / 100);
-                    kprintln!("max:     {}.{}C", max / 1000, ((max % 1000).abs()) / 100);
-                    kprintln!("avg:     {}.{}C", avg / 1000, ((avg % 1000).abs()) / 100);
-                    kprintln!("readings: {}", count);
-                    if arg.starts_with("history") {
-                        let n_str = arg.strip_prefix("history").unwrap_or("").trim();
-                        let n = if n_str.is_empty() { 10 } else { n_str.parse::<usize>().unwrap_or(10) };
-                        kprintln!("recent readings:");
-                        sensor::print_history(n);
-                    }
-                }
-                None => kprintln!("no temperature readings yet"),
+            match mailbox::get_temperature() {
+                Some(mc) => kprintln!("{}.{}C", mc / 1000, ((mc % 1000).abs()) / 100),
+                None => kprintln!("temperature unavailable"),
             }
         }
         "yield" => {

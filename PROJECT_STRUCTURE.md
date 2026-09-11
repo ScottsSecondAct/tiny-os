@@ -23,6 +23,11 @@ tiny_os/
 │                                       #   certification: WCET, MC/DC, health monitor,
 │                                       #   watchdog, mixed-criticality, traceability
 │
+├── examples/               # User-space applications (run at EL0 via syscalls)
+│   └── temp_monitor.rs     # Temperature monitor: reads SoC temp via SYS_TEMPERATURE
+│                           #   syscall, tracks min/max/avg, prints periodic status,
+│                           #   all code in .user.text section (EL0-accessible)
+│
 ├── arch/                   # Architecture crate — hardware register access & HAL traits
 │   ├── Cargo.toml
 │   └── src/
@@ -95,12 +100,10 @@ tiny_os/
         ├── shell.rs        # Interactive UART shell: help, uptime, ticks, info, mem,
         │                   #   tasks, smp, log, health, sd, sdread, ls, cat, hexdump,
         │                   #   touch, write, ping, netstat, ifconfig, temp, yield, svc, reboot
-        ├── sensor.rs       # CPU temperature monitor: 5s readings via VideoCore mailbox,
-        │                   #   60-entry ring buffer, min/max/avg stats, /TEMP.LOG, 80°C alert
         ├── netbuf.rs       # Zero-copy DMA buffer pool: 1024×1536B in NC memory,
         │                   #   AtomicU8 refcount, spinlock-protected free list
         ├── syscall.rs      # Syscall dispatch: SYS_YIELD(0), SYS_DELAY(1), SYS_WRITE(2),
-        │                   #   SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5)
+        │                   #   SYS_TASK_ID(3), SYS_UPTIME(4), SYS_EXIT(5), SYS_TEMPERATURE(6)
         ├── user_tasks.rs   # EL0 user demo task with inline-asm syscall stubs,
         │                   #   all code in .user.text section (EL0-accessible)
         ├── net/            # Network stack subsystem
