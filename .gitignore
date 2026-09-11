@@ -20,3 +20,4 @@ kernel8.img
 # QEMU test artifacts
 qemu_out.txt
 test.img
+tests/qemu/last_output.txt

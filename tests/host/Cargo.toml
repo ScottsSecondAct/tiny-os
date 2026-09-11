@@ -1,0 +1,8 @@
+[package]
+name = "host-tests"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "host_tests"
+path = "src/lib.rs"

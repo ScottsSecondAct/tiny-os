@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "arch", "bsp"]
+members = ["kernel", "arch", "bsp", "tests/host"]
+default-members = ["kernel", "arch", "bsp"]
 
 [profile.dev]
 panic = "abort"
