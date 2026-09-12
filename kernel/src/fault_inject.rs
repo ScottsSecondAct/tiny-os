@@ -4,9 +4,9 @@
 // monitor, hook functions, and structured shutdown respond correctly.
 // Each test returns true if the fault was handled as expected.
 
-use crate::{hooks, kprintln, mm, sched, shutdown, watchdog};
-use crate::sched::Criticality;
 use crate::mm::pool::{self, OsPool, PoolErr};
+use crate::sched::Criticality;
+use crate::{hooks, kprintln, mm, sched, shutdown, watchdog};
 
 pub fn run_all() {
     kprintln!("=== Fault Injection Test Suite ===");
@@ -14,13 +14,43 @@ pub fn run_all() {
     let mut failed = 0u32;
 
     run_test("pool_exhaust", test_pool_exhaust, &mut passed, &mut failed);
-    run_test("pool_double_free", test_pool_double_free, &mut passed, &mut failed);
+    run_test(
+        "pool_double_free",
+        test_pool_double_free,
+        &mut passed,
+        &mut failed,
+    );
     run_test("pool_bad_ptr", test_pool_bad_ptr, &mut passed, &mut failed);
-    run_test("budget_overrun_detect", test_budget_overrun, &mut passed, &mut failed);
-    run_test("health_check_hooks", test_health_hooks, &mut passed, &mut failed);
-    run_test("criticality_switch", test_criticality_switch, &mut passed, &mut failed);
-    run_test("diag_region_init", test_diag_region, &mut passed, &mut failed);
-    run_test("hook_invocation", test_hook_invocation, &mut passed, &mut failed);
+    run_test(
+        "budget_overrun_detect",
+        test_budget_overrun,
+        &mut passed,
+        &mut failed,
+    );
+    run_test(
+        "health_check_hooks",
+        test_health_hooks,
+        &mut passed,
+        &mut failed,
+    );
+    run_test(
+        "criticality_switch",
+        test_criticality_switch,
+        &mut passed,
+        &mut failed,
+    );
+    run_test(
+        "diag_region_init",
+        test_diag_region,
+        &mut passed,
+        &mut failed,
+    );
+    run_test(
+        "hook_invocation",
+        test_hook_invocation,
+        &mut passed,
+        &mut failed,
+    );
 
     kprintln!("=== Results: {}/{} passed ===", passed, passed + failed);
 }
@@ -39,13 +69,13 @@ fn run_test(name: &str, f: fn() -> bool, passed: &mut u32, failed: &mut u32) {
 fn test_pool_exhaust() -> bool {
     static mut BUF: [u8; 256] = [0; 256];
     let mut p = OsPool::uninit();
-    let buf_ptr = unsafe { BUF.as_mut_ptr() };
+    let buf_ptr = unsafe { (*core::ptr::addr_of_mut!(BUF)).as_mut_ptr() };
     pool::pool_create(&mut p, buf_ptr, 32, 4);
 
     let mut ptrs = [core::ptr::null_mut::<u8>(); 4];
-    for i in 0..4 {
+    for slot in ptrs.iter_mut() {
         match pool::pool_alloc(&mut p) {
-            Ok(ptr) => ptrs[i] = ptr,
+            Ok(ptr) => *slot = ptr,
             Err(_) => return false,
         }
     }
@@ -66,7 +96,7 @@ fn test_pool_exhaust() -> bool {
 fn test_pool_double_free() -> bool {
     static mut BUF: [u8; 128] = [0; 128];
     let mut p = OsPool::uninit();
-    let buf_ptr = unsafe { BUF.as_mut_ptr() };
+    let buf_ptr = unsafe { (*core::ptr::addr_of_mut!(BUF)).as_mut_ptr() };
     pool::pool_create(&mut p, buf_ptr, 32, 2);
 
     let ptr = pool::pool_alloc(&mut p).unwrap();
@@ -81,7 +111,7 @@ fn test_pool_double_free() -> bool {
 fn test_pool_bad_ptr() -> bool {
     static mut BUF: [u8; 128] = [0; 128];
     let mut p = OsPool::uninit();
-    let buf_ptr = unsafe { BUF.as_mut_ptr() };
+    let buf_ptr = unsafe { (*core::ptr::addr_of_mut!(BUF)).as_mut_ptr() };
     pool::pool_create(&mut p, buf_ptr, 32, 2);
 
     // Free a null pointer.

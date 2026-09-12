@@ -36,7 +36,7 @@ const PAD_STRIDE: usize = 0x04;
 
 // RIO (Register I/O) base within GPIO region
 const RIO_BASE: usize = 0x0000;
-const RIO_OUT: usize = RIO_BASE + 0x00;
+const RIO_OUT: usize = RIO_BASE;
 const RIO_OE: usize = RIO_BASE + 0x04;
 const RIO_IN: usize = RIO_BASE + 0x08;
 const RIO_SET: usize = 0x2000;
@@ -44,8 +44,8 @@ const RIO_CLR: usize = 0x3000;
 
 // GPIO_CTRL function select field (bits 4:0)
 const CTRL_FUNCSEL_MASK: u32 = 0x1F;
-const FUNCSEL_NULL: u32 = 31;  // Disconnect (hi-Z)
-const FUNCSEL_SIO: u32 = 5;   // Software I/O (GPIO mode)
+const FUNCSEL_NULL: u32 = 31; // Disconnect (hi-Z)
+const FUNCSEL_SIO: u32 = 5; // Software I/O (GPIO mode)
 const FUNCSEL_ALT0: u32 = 0;
 const FUNCSEL_ALT1: u32 = 1;
 const FUNCSEL_ALT2: u32 = 2;
@@ -56,8 +56,8 @@ const FUNCSEL_ALT5: u32 = 5;
 // Pad control bits
 const PAD_PUE: u32 = 1 << 3; // Pull-up enable
 const PAD_PDE: u32 = 1 << 2; // Pull-down enable
-const PAD_IE: u32 = 1 << 6;  // Input enable
-const PAD_OD: u32 = 1 << 7;  // Output disable
+const PAD_IE: u32 = 1 << 6; // Input enable
+const PAD_OD: u32 = 1 << 7; // Output disable
 
 pub struct Rp1Gpio;
 

@@ -1,12 +1,12 @@
-pub mod ethernet;
 pub mod arp;
-pub mod ipv4;
-pub mod icmp;
-pub mod udp;
-pub mod tcp;
-pub mod socket;
-pub mod loopback;
+pub mod ethernet;
 pub mod firewall;
+pub mod icmp;
+pub mod ipv4;
+pub mod loopback;
+pub mod socket;
+pub mod tcp;
+pub mod udp;
 
 use crate::{kprintln, netbuf};
 use core::cell::UnsafeCell;

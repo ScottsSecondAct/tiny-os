@@ -27,11 +27,11 @@ const FR_TXFF: u32 = 1 << 5; // TX FIFO Full
 const FR_BUSY: u32 = 1 << 3;
 
 // LCR_H bits
-const LCR_H_FEN: u32 = 1 << 4;  // FIFO Enable
+const LCR_H_FEN: u32 = 1 << 4; // FIFO Enable
 const LCR_H_WLEN_8: u32 = 3 << 5; // 8-bit word length
 const LCR_H_STP2: u32 = 1 << 3; // Two stop bits
-const LCR_H_PEN: u32 = 1 << 1;  // Parity enable
-const LCR_H_EPS: u32 = 1 << 2;  // Even parity select
+const LCR_H_PEN: u32 = 1 << 1; // Parity enable
+const LCR_H_EPS: u32 = 1 << 2; // Even parity select
 
 // CR bits
 const CR_UARTEN: u32 = 1 << 0;
@@ -60,7 +60,7 @@ impl Rp1Serial {
     }
 
     fn base(port: u8) -> Option<usize> {
-        if port >= 1 && port <= 5 {
+        if (1..=5).contains(&port) {
             Some(UART_BASES[(port - 1) as usize])
         } else {
             None
@@ -142,7 +142,11 @@ impl SerialPort for Rp1Serial {
             while Self::read_at(base, FR) & FR_TXFF != 0 {
                 timeout -= 1;
                 if timeout == 0 {
-                    return if i > 0 { Ok(i) } else { Err(SerialError::Timeout) };
+                    return if i > 0 {
+                        Ok(i)
+                    } else {
+                        Err(SerialError::Timeout)
+                    };
                 }
             }
             Self::write_at(base, DR, byte as u32);
@@ -161,7 +165,11 @@ impl SerialPort for Rp1Serial {
             }
             let dr = Self::read_at(base, DR);
             if dr & 0xF00 != 0 {
-                return if count > 0 { Ok(count) } else { Err(SerialError::FramingError) };
+                return if count > 0 {
+                    Ok(count)
+                } else {
+                    Err(SerialError::FramingError)
+                };
             }
             *slot = dr as u8;
             count += 1;

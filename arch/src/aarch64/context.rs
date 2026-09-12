@@ -11,11 +11,7 @@ pub struct Aarch64Context;
 impl Context for Aarch64Context {
     type SavedContext = u64;
 
-    fn new_context(
-        entry: fn(usize) -> !,
-        arg: usize,
-        stack_top: *mut u8,
-    ) -> u64 {
+    fn new_context(entry: fn(usize) -> !, arg: usize, stack_top: *mut u8) -> u64 {
         // Build a fake saved-register frame on the task's stack so the first
         // context_switch into this task pops the frame and RETs into
         // task_trampoline, which then calls entry(arg).
@@ -39,7 +35,9 @@ impl Context for Aarch64Context {
             // x20 = argument
             frame.add(1).write(arg as u64);
             // x30 (LR) = trampoline address
-            frame.add(11).write(task_trampoline as *const () as usize as u64);
+            frame
+                .add(11)
+                .write(task_trampoline as *const () as usize as u64);
         }
 
         frame_sp as u64
@@ -63,10 +61,12 @@ impl Aarch64Context {
 
         unsafe {
             core::ptr::write_bytes(frame, 0, 12);
-            frame.add(0).write(entry as u64);         // x19 = EL0 entry
-            frame.add(1).write(arg as u64);            // x20 = arg
-            frame.add(2).write(user_sp as u64);        // x21 = user SP
-            frame.add(11).write(task_trampoline_user as *const () as usize as u64);
+            frame.add(0).write(entry as u64); // x19 = EL0 entry
+            frame.add(1).write(arg as u64); // x20 = arg
+            frame.add(2).write(user_sp as u64); // x21 = user SP
+            frame
+                .add(11)
+                .write(task_trampoline_user as *const () as usize as u64);
         }
 
         frame_sp as u64

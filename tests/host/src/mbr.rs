@@ -71,7 +71,9 @@ mod tests {
         sector[0x1FF] = 0xAA;
 
         for (i, &(status, ptype, lba, count)) in partitions.iter().enumerate() {
-            if i >= 4 { break; }
+            if i >= 4 {
+                break;
+            }
             let offset = PARTITION_TABLE_OFFSET + i * PARTITION_ENTRY_SIZE;
             sector[offset] = status;
             sector[offset + 4] = ptype;
@@ -134,21 +136,103 @@ mod tests {
 
     #[test]
     fn type_name_coverage() {
-        assert_eq!(Partition { status: 0, part_type: 0x01, lba_start: 0, sector_count: 0 }.type_name(), "FAT12");
-        assert_eq!(Partition { status: 0, part_type: 0x04, lba_start: 0, sector_count: 0 }.type_name(), "FAT16");
-        assert_eq!(Partition { status: 0, part_type: 0x06, lba_start: 0, sector_count: 0 }.type_name(), "FAT16");
-        assert_eq!(Partition { status: 0, part_type: 0x0E, lba_start: 0, sector_count: 0 }.type_name(), "FAT16");
-        assert_eq!(Partition { status: 0, part_type: 0x0B, lba_start: 0, sector_count: 0 }.type_name(), "FAT32");
-        assert_eq!(Partition { status: 0, part_type: 0x07, lba_start: 0, sector_count: 0 }.type_name(), "NTFS/exFAT");
-        assert_eq!(Partition { status: 0, part_type: 0xEE, lba_start: 0, sector_count: 0 }.type_name(), "GPT protective");
-        assert_eq!(Partition { status: 0, part_type: 0xFF, lba_start: 0, sector_count: 0 }.type_name(), "Unknown");
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0x01,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "FAT12"
+        );
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0x04,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "FAT16"
+        );
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0x06,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "FAT16"
+        );
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0x0E,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "FAT16"
+        );
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0x0B,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "FAT32"
+        );
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0x07,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "NTFS/exFAT"
+        );
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0xEE,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "GPT protective"
+        );
+        assert_eq!(
+            Partition {
+                status: 0,
+                part_type: 0xFF,
+                lba_start: 0,
+                sector_count: 0
+            }
+            .type_name(),
+            "Unknown"
+        );
     }
 
     #[test]
     fn size_mb_calculation() {
-        let p = Partition { status: 0, part_type: 0x0C, lba_start: 0, sector_count: 2048 };
+        let p = Partition {
+            status: 0,
+            part_type: 0x0C,
+            lba_start: 0,
+            sector_count: 2048,
+        };
         assert_eq!(p.size_mb(), 1); // 2048 sectors * 512 bytes = 1 MB
-        let p2 = Partition { status: 0, part_type: 0x0C, lba_start: 0, sector_count: 2048 * 1024 };
+        let p2 = Partition {
+            status: 0,
+            part_type: 0x0C,
+            lba_start: 0,
+            sector_count: 2048 * 1024,
+        };
         assert_eq!(p2.size_mb(), 1024);
     }
 

@@ -140,8 +140,8 @@ pub unsafe fn init(regions: &[MemRegion]) {
     // Enable MMU, D-cache, I-cache via SCTLR_EL1.
     let mut sctlr: u64;
     core::arch::asm!("mrs {}, sctlr_el1", out(reg) sctlr);
-    sctlr |= 1 << 0;  // M  — MMU enable
-    sctlr |= 1 << 2;  // C  — data cache enable
+    sctlr |= 1 << 0; // M  — MMU enable
+    sctlr |= 1 << 2; // C  — data cache enable
     sctlr |= 1 << 12; // I  — instruction cache enable
     core::arch::asm!("msr sctlr_el1, {}", in(reg) sctlr);
     core::arch::asm!("isb");
@@ -192,8 +192,8 @@ pub unsafe fn init_secondary() {
 
     let mut sctlr: u64;
     core::arch::asm!("mrs {}, sctlr_el1", out(reg) sctlr);
-    sctlr |= 1 << 0;  // M
-    sctlr |= 1 << 2;  // C
+    sctlr |= 1 << 0; // M
+    sctlr |= 1 << 2; // C
     sctlr |= 1 << 12; // I
     core::arch::asm!("msr sctlr_el1, {}", in(reg) sctlr);
     core::arch::asm!("isb");
@@ -206,7 +206,7 @@ pub fn enabled() -> bool {
 }
 
 pub fn kernel_ttbr0() -> u64 {
-    unsafe { &raw const L0 as u64 }
+    &raw const L0 as u64
 }
 
 // --- User-mode page table support ---
@@ -261,7 +261,9 @@ fn alloc_asid() -> u8 {
     unsafe {
         let asid = NEXT_ASID;
         NEXT_ASID = NEXT_ASID.wrapping_add(1);
-        if NEXT_ASID == 0 { NEXT_ASID = 1; }
+        if NEXT_ASID == 0 {
+            NEXT_ASID = 1;
+        }
         asid
     }
 }
@@ -278,13 +280,19 @@ pub unsafe fn create_user_page_table(
     user_stack_base: usize,
     user_stack_pages: usize,
 ) -> u64 {
-    let slot = USER_SLOT_USED.iter().position(|&used| !used)
+    let slot = (*core::ptr::addr_of!(USER_SLOT_USED))
+        .iter()
+        .position(|&used| !used)
         .expect("no free user page table slots");
     USER_SLOT_USED[slot] = true;
     let asid = alloc_asid();
 
-    for e in USER_L0[slot].entries.iter_mut() { *e = 0; }
-    for e in USER_L1[slot].entries.iter_mut() { *e = 0; }
+    for e in USER_L0[slot].entries.iter_mut() {
+        *e = 0;
+    }
+    for e in USER_L1[slot].entries.iter_mut() {
+        *e = 0;
+    }
 
     let user_l1_pa = &raw const USER_L1[slot] as u64;
     USER_L0[slot].entries[0] = user_l1_pa | PT_TABLE;
@@ -293,16 +301,17 @@ pub unsafe fn create_user_page_table(
     let stack_end = user_stack_base + user_stack_pages * PAGE_SIZE_4K;
 
     for i in 0..ENTRIES_PER_TABLE {
-        if L1.entries[i] == 0 { continue; }
+        if L1.entries[i] == 0 {
+            continue;
+        }
 
         let kernel_l2_pa = L1.entries[i] & 0x0000_FFFF_FFFF_F000;
         let gb_base = i << 30;
         let gb_end = gb_base + (1 << 30);
 
-        let code_overlaps = user_code_size > 0
-            && user_code_base < gb_end && code_end > gb_base;
-        let stack_overlaps = user_stack_pages > 0
-            && user_stack_base < gb_end && stack_end > gb_base;
+        let code_overlaps = user_code_size > 0 && user_code_base < gb_end && code_end > gb_base;
+        let stack_overlaps =
+            user_stack_pages > 0 && user_stack_base < gb_end && stack_end > gb_base;
 
         if code_overlaps || stack_overlaps {
             let user_l2 = alloc_user_l2();
@@ -350,8 +359,8 @@ pub unsafe fn create_user_page_table(
                     let page_addr = user_stack_base + p * PAGE_SIZE_4K;
                     let l3_idx = (page_addr - block_base) / PAGE_SIZE_4K;
                     let pa = page_addr as u64;
-                    (*l3).entries[l3_idx] = pa | PT_PAGE | attr_idx(1) | AF
-                        | SH_INNER | AP_RW_EL0 | PXN | UXN | NG;
+                    (*l3).entries[l3_idx] =
+                        pa | PT_PAGE | attr_idx(1) | AF | SH_INNER | AP_RW_EL0 | PXN | UXN | NG;
                 }
 
                 (*user_l2).entries[l2_idx] = (l3 as u64) | PT_TABLE;
@@ -379,13 +388,19 @@ pub struct UserMapping {
 /// with EL0 permissions: executable=true → RX, executable=false → RW.
 /// A guard page is placed below the last mapping (assumed to be the stack).
 pub unsafe fn create_user_page_table_mapped(mappings: &[UserMapping]) -> u64 {
-    let slot = USER_SLOT_USED.iter().position(|&used| !used)
+    let slot = (*core::ptr::addr_of!(USER_SLOT_USED))
+        .iter()
+        .position(|&used| !used)
         .expect("no free user page table slots");
     USER_SLOT_USED[slot] = true;
     let asid = alloc_asid();
 
-    for e in USER_L0[slot].entries.iter_mut() { *e = 0; }
-    for e in USER_L1[slot].entries.iter_mut() { *e = 0; }
+    for e in USER_L0[slot].entries.iter_mut() {
+        *e = 0;
+    }
+    for e in USER_L1[slot].entries.iter_mut() {
+        *e = 0;
+    }
 
     let user_l1_pa = &raw const USER_L1[slot] as u64;
     USER_L0[slot].entries[0] = user_l1_pa | PT_TABLE;
@@ -397,7 +412,9 @@ pub unsafe fn create_user_page_table_mapped(mappings: &[UserMapping]) -> u64 {
 
     // For each mapping, create L3 page table entries with EL0 permissions.
     for (mi, mapping) in mappings.iter().enumerate() {
-        if mapping.pages == 0 { continue; }
+        if mapping.pages == 0 {
+            continue;
+        }
         let region_end = mapping.base + mapping.pages * PAGE_SIZE_4K;
 
         // Process each 2MB block that this mapping touches.
@@ -454,12 +471,12 @@ pub unsafe fn create_user_page_table_mapped(mappings: &[UserMapping]) -> u64 {
                 let pa = addr as u64;
                 if mapping.executable {
                     // EL0 RX: read-only, executable, non-global.
-                    (*l3).entries[l3_idx] = pa | PT_PAGE | attr_idx(1) | AF
-                        | SH_INNER | AP_RO_EL0 | PXN | NG;
+                    (*l3).entries[l3_idx] =
+                        pa | PT_PAGE | attr_idx(1) | AF | SH_INNER | AP_RO_EL0 | PXN | NG;
                 } else {
                     // EL0 RW: read-write, no-execute, non-global.
-                    (*l3).entries[l3_idx] = pa | PT_PAGE | attr_idx(1) | AF
-                        | SH_INNER | AP_RW_EL0 | PXN | UXN | NG;
+                    (*l3).entries[l3_idx] =
+                        pa | PT_PAGE | attr_idx(1) | AF | SH_INNER | AP_RW_EL0 | PXN | UXN | NG;
                 }
             }
 

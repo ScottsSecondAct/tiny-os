@@ -38,7 +38,9 @@ static mut PROP_BUF2: PropBuf10 = PropBuf10 { data: [0; 10] };
 
 pub fn init(base: usize) {
     // SAFETY: Called once from kmain before any mailbox use.
-    unsafe { BASE = base; }
+    unsafe {
+        BASE = base;
+    }
 }
 
 pub fn is_initialized() -> bool {
@@ -148,10 +150,10 @@ pub fn set_clock_rate(hz: u32) -> Option<u32> {
     // SAFETY: PROP_BUF2 is only accessed by serialized mailbox calls.
     unsafe {
         PROP_BUF2.data[0] = 40; // total buffer size
-        PROP_BUF2.data[1] = 0;  // request
+        PROP_BUF2.data[1] = 0; // request
         PROP_BUF2.data[2] = TAG_SET_CLOCK_RATE;
         PROP_BUF2.data[3] = 12; // value buffer size (clock_id + rate + skip_turbo)
-        PROP_BUF2.data[4] = 0;  // request indicator
+        PROP_BUF2.data[4] = 0; // request indicator
         PROP_BUF2.data[5] = CLOCK_ARM;
         PROP_BUF2.data[6] = hz;
         PROP_BUF2.data[7] = 0; // skip_turbo = 0

@@ -130,10 +130,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Install cross-compilation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu qemu-system-aarch64
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Cache QEMU 9.2
+        id: cache-qemu
+        uses: actions/cache@v4
+        with:
+          path: ~/qemu
+          key: qemu-9.2.0-aarch64-softmmu
+
+      - name: Build QEMU 9.2 (raspi4b support)
+        if: steps.cache-qemu.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y ninja-build libglib2.0-dev libpixman-1-dev
+          wget -q https://download.qemu.org/qemu-9.2.0.tar.xz
+          tar xf qemu-9.2.0.tar.xz
+          cd qemu-9.2.0
+          ./configure --target-list=aarch64-softmmu --prefix=$HOME/qemu \
+            --disable-docs --disable-user --disable-tools --disable-guest-agent
+          make -j$(nproc)
+          make install
+
+      - name: Add QEMU to PATH
+        run: echo "$HOME/qemu/bin" >> $GITHUB_PATH
 
       - name: Install Rust toolchain
         run: rustup show
@@ -153,6 +175,7 @@ jobs:
 
       - name: Boot QEMU and capture output
         run: |
+          qemu-system-aarch64 --version
           timeout 15 qemu-system-aarch64 \
             -M raspi4b \
             -smp 4 \

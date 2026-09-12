@@ -1,9 +1,9 @@
-use core::cell::UnsafeCell;
+use crate::kprintln;
+use crate::spinlock::SpinLock;
 use arch::aarch64::context::Aarch64Context;
 use arch::aarch64::smp;
 use arch::context::Context;
-use crate::kprintln;
-use crate::spinlock::SpinLock;
+use core::cell::UnsafeCell;
 
 use crate::os_cfg;
 
@@ -58,28 +58,35 @@ impl Criticality {
 
 const STACK_CANARY: u8 = 0xAA;
 
-pub const CAP_YIELD: u32    = 1 << 0;
-pub const CAP_DELAY: u32    = 1 << 1;
-pub const CAP_WRITE: u32    = 1 << 2;
-pub const CAP_TASKID: u32   = 1 << 3;
-pub const CAP_UPTIME: u32   = 1 << 4;
-pub const CAP_EXIT: u32     = 1 << 5;
-pub const CAP_TEMP: u32     = 1 << 6;
-pub const CAP_FS: u32       = 1 << 10;
-pub const CAP_NET: u32      = 1 << 11;
-pub const CAP_SPI: u32      = 1 << 12;
-pub const CAP_I2C: u32      = 1 << 13;
-pub const CAP_GPIO: u32     = 1 << 14;
-pub const CAP_UART: u32     = 1 << 15;
-pub const CAP_PWM: u32      = 1 << 16;
-pub const CAP_RTC: u32      = 1 << 17;
-pub const CAP_DMA: u32      = 1 << 18;
-pub const CAP_USB: u32      = 1 << 19;
-pub const CAP_CRYPTO: u32   = 1 << 20;
-pub const CAP_POWER: u32    = 1 << 21;
-pub const CAP_ALL: u32      = 0xFFFFFFFF;
-pub const CAP_USER_DEFAULT: u32 = CAP_YIELD | CAP_DELAY | CAP_WRITE | CAP_TASKID
-    | CAP_UPTIME | CAP_EXIT | CAP_TEMP | CAP_FS | CAP_NET;
+pub const CAP_YIELD: u32 = 1 << 0;
+pub const CAP_DELAY: u32 = 1 << 1;
+pub const CAP_WRITE: u32 = 1 << 2;
+pub const CAP_TASKID: u32 = 1 << 3;
+pub const CAP_UPTIME: u32 = 1 << 4;
+pub const CAP_EXIT: u32 = 1 << 5;
+pub const CAP_TEMP: u32 = 1 << 6;
+pub const CAP_FS: u32 = 1 << 10;
+pub const CAP_NET: u32 = 1 << 11;
+pub const CAP_SPI: u32 = 1 << 12;
+pub const CAP_I2C: u32 = 1 << 13;
+pub const CAP_GPIO: u32 = 1 << 14;
+pub const CAP_UART: u32 = 1 << 15;
+pub const CAP_PWM: u32 = 1 << 16;
+pub const CAP_RTC: u32 = 1 << 17;
+pub const CAP_DMA: u32 = 1 << 18;
+pub const CAP_USB: u32 = 1 << 19;
+pub const CAP_CRYPTO: u32 = 1 << 20;
+pub const CAP_POWER: u32 = 1 << 21;
+pub const CAP_ALL: u32 = 0xFFFFFFFF;
+pub const CAP_USER_DEFAULT: u32 = CAP_YIELD
+    | CAP_DELAY
+    | CAP_WRITE
+    | CAP_TASKID
+    | CAP_UPTIME
+    | CAP_EXIT
+    | CAP_TEMP
+    | CAP_FS
+    | CAP_NET;
 
 #[repr(C)]
 pub struct Tcb {
@@ -186,8 +193,8 @@ impl Scheduler {
     }
 
     fn alloc_id(&mut self) -> Option<u8> {
-        for i in 0..MAX_TASKS {
-            if self.tasks[i].state == TaskState::Dormant {
+        for (i, task) in self.tasks.iter().enumerate() {
+            if task.state == TaskState::Dormant {
                 return Some(i as u8);
             }
         }
@@ -225,8 +232,7 @@ impl Scheduler {
     }
 
     fn find_highest_prio(&self) -> Option<usize> {
-        for word_idx in 0..4 {
-            let word = self.prio_bitmap[word_idx];
+        for (word_idx, &word) in self.prio_bitmap.iter().enumerate() {
             if word != 0 {
                 let bit = word.trailing_zeros() as usize;
                 return Some(word_idx * 64 + bit);
@@ -324,9 +330,7 @@ fn create_idle_task(s: &mut Scheduler, core: usize) {
     }
 
     let stack_base = unsafe { (&raw const IDLE_STACKS[core].0) as usize };
-    let stack_top = unsafe {
-        ((&raw mut IDLE_STACKS[core].0) as *mut u8).add(IDLE_STACK_SIZE)
-    };
+    let stack_top = unsafe { ((&raw mut IDLE_STACKS[core].0) as *mut u8).add(IDLE_STACK_SIZE) };
     let sp = Aarch64Context::new_context(idle_entry, 0, stack_top);
     s.tasks[id as usize] = Tcb {
         sp,
@@ -457,9 +461,7 @@ pub fn task_create_user(
     }
 
     let kernel_stack_top = unsafe { kernel_stack.as_mut_ptr().add(kernel_stack.len()) };
-    let sp = Aarch64Context::new_user_context(
-        user_entry, user_stack_top, arg, kernel_stack_top,
-    );
+    let sp = Aarch64Context::new_user_context(user_entry, user_stack_top, arg, kernel_stack_top);
 
     s.tasks[id as usize] = Tcb {
         sp,
@@ -515,15 +517,21 @@ pub fn task_terminate(id: u8) {
         let base = s.tasks[idx].stack_base;
         let size = s.tasks[idx].stack_size;
         if base != 0 && size != 0 {
-            unsafe { secure_wipe(base as *mut u8, size); }
+            unsafe {
+                secure_wipe(base as *mut u8, size);
+            }
         }
     }
 
     if s.tasks[idx].ttbr0 != 0 {
         if is_current {
-            unsafe { arch::aarch64::mmu::switch_ttbr0(arch::aarch64::mmu::kernel_ttbr0()); }
+            unsafe {
+                arch::aarch64::mmu::switch_ttbr0(arch::aarch64::mmu::kernel_ttbr0());
+            }
         }
-        unsafe { arch::aarch64::mmu::free_user_page_table(s.tasks[idx].ttbr0); }
+        unsafe {
+            arch::aarch64::mmu::free_user_page_table(s.tasks[idx].ttbr0);
+        }
         s.tasks[idx].ttbr0 = 0;
     }
 
@@ -666,8 +674,12 @@ pub fn start() -> ! {
     s.tasks[id as usize].core = 0;
 
     let sp = s.tasks[id as usize].sp;
-    kprintln!("sched: starting '{}' (id={}, prio={}) on core 0",
-        s.tasks[id as usize].name, id, s.tasks[id as usize].priority);
+    kprintln!(
+        "sched: starting '{}' (id={}, prio={}) on core 0",
+        s.tasks[id as usize].name,
+        id,
+        s.tasks[id as usize].priority
+    );
 
     // Lock is NOT released here — task_trampoline calls sched_unlock_new_task().
     unsafe {
@@ -704,8 +716,13 @@ pub fn start_secondary(core: usize) -> ! {
     s.tasks[id as usize].core = core as u8;
 
     let sp = s.tasks[id as usize].sp;
-    kprintln!("sched: core {} starting '{}' (id={}, prio={})",
-        core, s.tasks[id as usize].name, id, s.tasks[id as usize].priority);
+    kprintln!(
+        "sched: core {} starting '{}' (id={}, prio={})",
+        core,
+        s.tasks[id as usize].name,
+        id,
+        s.tasks[id as usize].priority
+    );
 
     // Lock released by task_trampoline → sched_unlock_new_task().
     unsafe {
@@ -750,8 +767,12 @@ pub fn tick() {
     if s.tasks[idx].budget_ticks > 0 && s.tasks[idx].budget_remaining > 0 {
         s.tasks[idx].budget_remaining -= 1;
         if s.tasks[idx].budget_remaining == 0 {
-            crate::klog_warn!("sched", "task '{}' (id={}) budget exhausted",
-                s.tasks[idx].name, s.tasks[idx].id);
+            crate::klog_warn!(
+                "sched",
+                "task '{}' (id={}) budget exhausted",
+                s.tasks[idx].name,
+                s.tasks[idx].id
+            );
             crate::hooks::os_hook_budget_overrun(s.tasks[idx].id, s.tasks[idx].name);
             if os_cfg::BUDGET_EN {
                 s.tasks[idx].state = TaskState::Suspended;
@@ -832,7 +853,9 @@ fn swap_ttbr0_if_needed(cur_ttbr0: u64, next_ttbr0: u64) {
         } else {
             arch::aarch64::mmu::kernel_ttbr0()
         };
-        unsafe { arch::aarch64::mmu::switch_ttbr0(ttbr); }
+        unsafe {
+            arch::aarch64::mmu::switch_ttbr0(ttbr);
+        }
     }
 }
 
@@ -851,7 +874,7 @@ fn schedule_locked(s: &mut Scheduler, core: usize) {
 
             swap_ttbr0_if_needed(0, s.tasks[next_id as usize].ttbr0);
 
-            let discard_ptr = unsafe { &raw mut DISCARD_SP };
+            let discard_ptr = &raw mut DISCARD_SP;
             let next_sp_ptr = &s.tasks[next_id as usize].sp as *const u64;
             unsafe { Aarch64Context::switch(discard_ptr, next_sp_ptr) };
         }
@@ -880,8 +903,10 @@ fn schedule_locked(s: &mut Scheduler, core: usize) {
 
     let next_prio = s.find_highest_prio();
     let should_switch = match next_prio {
-        Some(p) => p < cur_prio as usize
-            || (p == cur_prio as usize && s.tasks[cur_idx].ticks_remaining == 0),
+        Some(p) => {
+            p < cur_prio as usize
+                || (p == cur_prio as usize && s.tasks[cur_idx].ticks_remaining == 0)
+        }
         None => false,
     };
 
@@ -1269,7 +1294,15 @@ pub fn task_stack_info() -> [(u8, &'static str, usize, usize); MAX_TASKS] {
 pub fn task_list_ext() -> [(u8, &'static str, u8, TaskState, Criticality, u32, u64); MAX_TASKS] {
     let saved = SCHED_LOCK.lock();
     let s = sched();
-    let mut result = [(0u8, "", 0u8, TaskState::Dormant, Criticality::Standard, 0u32, 0u64); MAX_TASKS];
+    let mut result = [(
+        0u8,
+        "",
+        0u8,
+        TaskState::Dormant,
+        Criticality::Standard,
+        0u32,
+        0u64,
+    ); MAX_TASKS];
     for i in 0..MAX_TASKS {
         if s.tasks[i].state != TaskState::Dormant {
             result[i] = (
@@ -1312,8 +1345,8 @@ pub fn check_mutex_ownership() -> bool {
     let saved = SCHED_LOCK.lock();
     let s = sched();
     let mut ok = true;
-    for i in 0..MAX_TASKS {
-        if s.tasks[i].state == TaskState::Dormant && s.tasks[i].priority != s.tasks[i].base_priority {
+    for task in s.tasks.iter() {
+        if task.state == TaskState::Dormant && task.priority != task.base_priority {
             ok = false;
         }
     }

@@ -30,15 +30,19 @@ impl WcetRecord {
     }
 
     fn update(&mut self, cycles: u64) {
-        if cycles < self.min_cycles { self.min_cycles = cycles; }
-        if cycles > self.max_cycles { self.max_cycles = cycles; }
+        if cycles < self.min_cycles {
+            self.min_cycles = cycles;
+        }
+        if cycles > self.max_cycles {
+            self.max_cycles = cycles;
+        }
         self.last_cycles = cycles;
         self.count += 1;
         self.total_cycles += cycles;
     }
 
     pub fn avg_cycles(&self) -> u64 {
-        if self.count > 0 { self.total_cycles / self.count } else { 0 }
+        self.total_cycles.checked_div(self.count).unwrap_or(0)
     }
 }
 
@@ -114,11 +118,20 @@ pub fn dump_all() {
         crate::kprintln!("(no WCET records)");
         return;
     }
-    crate::kprintln!("{:<24} {:>10} {:>10} {:>10} {:>8}", "Service", "Min(cy)", "Max(cy)", "Avg(cy)", "Count");
-    for i in 0..t.count {
-        let r = &t.records[i];
-        if r.count == 0 { continue; }
-        crate::kprintln!("{:<24} {:>10} {:>10} {:>10} {:>8}",
+    crate::kprintln!(
+        "{:<24} {:>10} {:>10} {:>10} {:>8}",
+        "Service",
+        "Min(cy)",
+        "Max(cy)",
+        "Avg(cy)",
+        "Count"
+    );
+    for r in t.records.iter().take(t.count) {
+        if r.count == 0 {
+            continue;
+        }
+        crate::kprintln!(
+            "{:<24} {:>10} {:>10} {:>10} {:>8}",
             r.name,
             r.min_cycles,
             r.max_cycles,

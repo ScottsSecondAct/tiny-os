@@ -42,8 +42,8 @@ const IC_TX_ABRT_SOURCE: usize = 0x80;
 
 // IC_CON bits
 const CON_MASTER_MODE: u32 = 1 << 0;
-const CON_SPEED_STD: u32 = 1 << 1;   // Standard mode (100 kHz)
-const CON_SPEED_FAST: u32 = 2 << 1;  // Fast mode (400 kHz)
+const CON_SPEED_STD: u32 = 1 << 1; // Standard mode (100 kHz)
+const CON_SPEED_FAST: u32 = 2 << 1; // Fast mode (400 kHz)
 const CON_SLAVE_DISABLE: u32 = 1 << 6;
 const CON_RESTART_EN: u32 = 1 << 5;
 
@@ -128,7 +128,7 @@ impl I2cDevice for Rp1I2c {
         self.disable();
 
         let (speed_bits, scl_hcnt, scl_lcnt) = if config.clock_hz <= 100_000 {
-            let period_ns = 1_000_000_000 / 100_000;
+            let _period_ns = 1_000_000_000 / 100_000;
             let hcnt = I2C_REF_CLOCK / 100_000 / 2;
             let lcnt = hcnt;
             (CON_SPEED_STD, hcnt, lcnt)

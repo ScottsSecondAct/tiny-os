@@ -1,8 +1,8 @@
-use core::cell::UnsafeCell;
-use core::fmt::{self, Write};
 use crate::os_cfg;
 use crate::sched::CriticalSection;
 use arch::aarch64::exceptions;
+use core::cell::UnsafeCell;
+use core::fmt::{self, Write};
 
 const LOG_MSG_SIZE: usize = os_cfg::LOG_MSG_SIZE;
 const LOG_MODULE_SIZE: usize = os_cfg::LOG_MODULE_SIZE;
@@ -29,7 +29,7 @@ impl LogLevel {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_level(s: &str) -> Option<Self> {
         match s {
             "error" => Some(LogLevel::Error),
             "warn" => Some(LogLevel::Warn),
@@ -123,7 +123,10 @@ pub fn log(level: LogLevel, module: &str, args: fmt::Arguments) {
     entry.module[..mod_len].copy_from_slice(&mod_bytes[..mod_len]);
     entry.module_len = mod_len as u8;
 
-    let mut writer = BufWriter { buf: &mut entry.msg, pos: 0 };
+    let mut writer = BufWriter {
+        buf: &mut entry.msg,
+        pos: 0,
+    };
     let _ = writer.write_fmt(args);
     entry.msg_len = writer.pos as u8;
 
@@ -137,9 +140,17 @@ pub fn log(level: LogLevel, module: &str, args: fmt::Arguments) {
         let ts = entry.timestamp;
         let secs = ts / 1000;
         let frac = ts % 1000;
-        let mod_str = core::str::from_utf8(&entry.module[..entry.module_len as usize]).unwrap_or("?");
+        let mod_str =
+            core::str::from_utf8(&entry.module[..entry.module_len as usize]).unwrap_or("?");
         let msg_str = core::str::from_utf8(&entry.msg[..entry.msg_len as usize]).unwrap_or("?");
-        crate::kprintln!("[{}.{:03}] {} [{}] {}", secs, frac, level.as_str(), mod_str, msg_str);
+        crate::kprintln!(
+            "[{}.{:03}] {} [{}] {}",
+            secs,
+            frac,
+            level.as_str(),
+            mod_str,
+            msg_str
+        );
     }
 }
 
@@ -170,7 +181,14 @@ pub fn dump(count: usize) {
         let frac = e.timestamp % 1000;
         let mod_str = core::str::from_utf8(&e.module[..e.module_len as usize]).unwrap_or("?");
         let msg_str = core::str::from_utf8(&e.msg[..e.msg_len as usize]).unwrap_or("?");
-        crate::kprintln!("[{}.{:03}] {} [{}] {}", secs, frac, e.level.as_str(), mod_str, msg_str);
+        crate::kprintln!(
+            "[{}.{:03}] {} [{}] {}",
+            secs,
+            frac,
+            e.level.as_str(),
+            mod_str,
+            msg_str
+        );
     }
 }
 

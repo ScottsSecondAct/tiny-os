@@ -1,8 +1,11 @@
-use crate::{audit, integrity, kprint, kprintln, fs, klog, mm, net, netbuf, os_cfg, periph, power, rtc, sched, storage, watchdog};
-use arch::aarch64::{emmc2, exceptions, mailbox};
+use crate::{
+    audit, fs, integrity, klog, kprint, kprintln, mm, net, netbuf, os_cfg, periph, power, rtc,
+    sched, storage, watchdog,
+};
 use arch::aarch64::mmu;
 use arch::aarch64::smp;
 use arch::aarch64::timer;
+use arch::aarch64::{emmc2, exceptions, mailbox};
 use arch::uart::UartDriver;
 
 const BACKSPACE: u8 = 0x7F;
@@ -31,12 +34,10 @@ fn authenticate(uart: &mut impl UartDriver) -> bool {
                             kprint!("\x08 \x08");
                         }
                     }
-                    0x20..=0x7E => {
-                        if pw_len < pw.len() {
-                            pw[pw_len] = c;
-                            pw_len += 1;
-                            kprint!("*");
-                        }
+                    0x20..=0x7E if pw_len < pw.len() => {
+                        pw[pw_len] = c;
+                        pw_len += 1;
+                        kprint!("*");
                     }
                     _ => {}
                 }
@@ -51,7 +52,11 @@ fn authenticate(uart: &mut impl UartDriver) -> bool {
         }
         attempts += 1;
         audit::log(audit::AuditEvent::AuthFail, "shell");
-        kprintln!("authentication failed ({}/{})", attempts, os_cfg::SHELL_AUTH_MAX_ATTEMPTS);
+        kprintln!(
+            "authentication failed ({}/{})",
+            attempts,
+            os_cfg::SHELL_AUTH_MAX_ATTEMPTS
+        );
         if attempts >= os_cfg::SHELL_AUTH_MAX_ATTEMPTS {
             kprintln!("locked out for {}ms", os_cfg::SHELL_AUTH_LOCKOUT_MS);
             sched::delay(os_cfg::SHELL_AUTH_LOCKOUT_MS);
@@ -89,12 +94,10 @@ pub fn run(uart: &mut impl UartDriver) -> ! {
                         kprint!("\x08 \x08");
                     }
                 }
-                0x20..=0x7E => {
-                    if len < buf.len() {
-                        buf[len] = c;
-                        len += 1;
-                        uart.write_byte(c);
-                    }
+                0x20..=0x7E if len < buf.len() => {
+                    buf[len] = c;
+                    len += 1;
+                    uart.write_byte(c);
                 }
                 _ => {}
             }
@@ -117,7 +120,7 @@ fn try_read_byte(_uart: &mut impl UartDriver) -> Option<u8> {
         return None; // RX FIFO empty
     }
     let dr_addr = fr_addr - 0x18; // DR is at offset 0, FR at 0x18
-    // SAFETY: Same MMIO region.
+                                  // SAFETY: Same MMIO region.
     let data = unsafe { core::ptr::read_volatile(dr_addr as *const u32) };
     Some(data as u8)
 }
@@ -136,7 +139,7 @@ fn uart_fr_addr() -> usize {
 fn dispatch(cmd: &str) {
     let trimmed = cmd.trim();
     let (base, arg) = match trimmed.find(' ') {
-        Some(i) => (&trimmed[..i], trimmed[i+1..].trim()),
+        Some(i) => (&trimmed[..i], trimmed[i + 1..].trim()),
         None => (trimmed, ""),
     };
 
@@ -173,7 +176,13 @@ fn dispatch(cmd: &str) {
         }
         "mem" => {
             let (total, used, free) = mm::page_stats();
-            kprintln!("pages:  {} total, {} used, {} free ({} KB free)", total, used, free, free * 4);
+            kprintln!(
+                "pages:  {} total, {} used, {} free ({} KB free)",
+                total,
+                used,
+                free,
+                free * 4
+            );
             let (htotal, hused, hfree) = mm::heap_stats();
             kprintln!("heap:   {} total, {} used, {} free", htotal, hused, hfree);
             let (nb_total, nb_free) = netbuf::pool_stats();
@@ -181,7 +190,15 @@ fn dispatch(cmd: &str) {
             kprintln!("MMU:    {}", if mmu::enabled() { "on" } else { "off" });
         }
         "tasks" => {
-            kprintln!("{:<4} {:<12} {:<6} {:<10} {:<8} {:<8}", "ID", "NAME", "PRIO", "STATE", "CRIT", "CPU");
+            kprintln!(
+                "{:<4} {:<12} {:<6} {:<10} {:<8} {:<8}",
+                "ID",
+                "NAME",
+                "PRIO",
+                "STATE",
+                "CRIT",
+                "CPU"
+            );
             for entry in sched::task_list_ext().iter() {
                 let (id, name, prio, state, crit, _budget, run_ticks) = *entry;
                 if state != sched::TaskState::Dormant {
@@ -192,8 +209,15 @@ fn dispatch(cmd: &str) {
                         sched::TaskState::Suspended => "suspend",
                         sched::TaskState::Dormant => "dormant",
                     };
-                    kprintln!("{:<4} {:<12} {:<6} {:<10} {:<8} {:<8}",
-                        id, name, prio, state_str, crit.as_str(), run_ticks);
+                    kprintln!(
+                        "{:<4} {:<12} {:<6} {:<10} {:<8} {:<8}",
+                        id,
+                        name,
+                        prio,
+                        state_str,
+                        crit.as_str(),
+                        run_ticks
+                    );
                 }
             }
         }
@@ -335,7 +359,7 @@ fn dispatch(cmd: &str) {
             } else {
                 // Split arg into "path text..."
                 let (path, text) = match arg.find(' ') {
-                    Some(i) => (&arg[..i], &arg[i+1..]),
+                    Some(i) => (&arg[..i], &arg[i + 1..]),
                     None => {
                         kprintln!("usage: write <path> <text>");
                         ("", "")
@@ -356,14 +380,17 @@ fn dispatch(cmd: &str) {
             }
         }
         "log" => {
-            if arg.starts_with("level ") {
-                let level_str = arg[6..].trim();
-                match klog::LogLevel::from_str(level_str) {
+            if let Some(rest) = arg.strip_prefix("level ") {
+                let level_str = rest.trim();
+                match klog::LogLevel::parse_level(level_str) {
                     Some(level) => {
                         klog::set_level(level);
                         kprintln!("log level set to {}", level.as_str());
                     }
-                    None => kprintln!("unknown level: {} (use error/warn/info/debug/trace)", level_str),
+                    None => kprintln!(
+                        "unknown level: {} (use error/warn/info/debug/trace)",
+                        level_str
+                    ),
                 }
             } else {
                 let count = if arg.is_empty() {
@@ -384,12 +411,15 @@ fn dispatch(cmd: &str) {
                 kprintln!("  {:<12}: {}/{} ({}%)", name, used, size, pct);
             }
             let (busy, total) = sched::utilization();
-            if total > 0 {
-                let cpu_pct = (busy * 100) / total;
+            if let Some(cpu_pct) = (busy * 100).checked_div(total) {
                 kprintln!("CPU utilization: {}% (idle {}%)", cpu_pct, 100 - cpu_pct);
             }
             if watchdog::is_enabled() {
-                kprintln!("Watchdog: ok ({}ms timeout, counter {}ms)", watchdog::timeout(), watchdog::counter());
+                kprintln!(
+                    "Watchdog: ok ({}ms timeout, counter {}ms)",
+                    watchdog::timeout(),
+                    watchdog::counter()
+                );
             } else {
                 kprintln!("Watchdog: disabled");
             }
@@ -414,15 +444,28 @@ fn dispatch(cmd: &str) {
         }
         "netstat" => {
             kprintln!("IP:  {}", net::our_ip());
-            kprintln!("MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                net::our_mac()[0], net::our_mac()[1], net::our_mac()[2],
-                net::our_mac()[3], net::our_mac()[4], net::our_mac()[5]);
+            kprintln!(
+                "MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                net::our_mac()[0],
+                net::our_mac()[1],
+                net::our_mac()[2],
+                net::our_mac()[3],
+                net::our_mac()[4],
+                net::our_mac()[5]
+            );
             kprintln!("ARP cache:");
             for entry in net::arp::cache_entries() {
                 if entry.valid {
-                    kprintln!("  {} -> {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                        entry.ip, entry.mac[0], entry.mac[1], entry.mac[2],
-                        entry.mac[3], entry.mac[4], entry.mac[5]);
+                    kprintln!(
+                        "  {} -> {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                        entry.ip,
+                        entry.mac[0],
+                        entry.mac[1],
+                        entry.mac[2],
+                        entry.mac[3],
+                        entry.mac[4],
+                        entry.mac[5]
+                    );
                 }
             }
             kprintln!("sockets: {}", net::socket::socket_count());
@@ -430,16 +473,20 @@ fn dispatch(cmd: &str) {
         "ifconfig" => {
             kprintln!("lo0: flags=UP,LOOPBACK mtu 1500");
             kprintln!("  inet {}", net::our_ip());
-            kprintln!("  ether {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                net::our_mac()[0], net::our_mac()[1], net::our_mac()[2],
-                net::our_mac()[3], net::our_mac()[4], net::our_mac()[5]);
+            kprintln!(
+                "  ether {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                net::our_mac()[0],
+                net::our_mac()[1],
+                net::our_mac()[2],
+                net::our_mac()[3],
+                net::our_mac()[4],
+                net::our_mac()[5]
+            );
         }
-        "temp" => {
-            match mailbox::get_temperature() {
-                Some(mc) => kprintln!("{}.{}C", mc / 1000, ((mc % 1000).abs()) / 100),
-                None => kprintln!("temperature unavailable"),
-            }
-        }
+        "temp" => match mailbox::get_temperature() {
+            Some(mc) => kprintln!("{}.{}C", mc / 1000, ((mc % 1000).abs()) / 100),
+            None => kprintln!("temperature unavailable"),
+        },
         #[cfg(feature = "dynamic-load")]
         "exec" => {
             if arg.is_empty() {
@@ -456,15 +503,28 @@ fn dispatch(cmd: &str) {
             let enabled = firewall::is_enabled();
             let count = firewall::rule_count();
             let (passed, dropped) = firewall::stats();
-            kprintln!("firewall: {}", if enabled { "ENABLED (default-deny)" } else { "disabled" });
+            kprintln!(
+                "firewall: {}",
+                if enabled {
+                    "ENABLED (default-deny)"
+                } else {
+                    "disabled"
+                }
+            );
             kprintln!("rules:    {}/{}", count, os_cfg::MAX_FIREWALL_RULES);
             kprintln!("passed:   {}", passed);
             kprintln!("dropped:  {}", dropped);
             for i in 0..count {
                 if let Some(rule) = firewall::get_rule(i) {
                     if rule.active {
-                        kprintln!("  [{}] {}/{} port {} {}",
-                            i, rule.src_ip, rule.src_mask, rule.dst_port, rule.protocol.as_str());
+                        kprintln!(
+                            "  [{}] {}/{} port {} {}",
+                            i,
+                            rule.src_ip,
+                            rule.src_mask,
+                            rule.dst_port,
+                            rule.protocol.as_str()
+                        );
                     }
                 }
             }
@@ -482,18 +542,36 @@ fn dispatch(cmd: &str) {
                 audit::persist_to_fs();
                 kprintln!("audit log persisted to /audit.log");
             } else {
-                let count = if arg.is_empty() { 20 } else { arg.parse::<usize>().unwrap_or(20) };
+                let count = if arg.is_empty() {
+                    20
+                } else {
+                    arg.parse::<usize>().unwrap_or(20)
+                };
                 audit::dump(count);
             }
         }
         "pwm" => {
             kprintln!("PWM: {} channels, 50 MHz reference", os_cfg::PWM_CHANNELS);
-            kprintln!("  status: {}", if cfg!(feature = "bsp-rpi5") { "RP1 PWM available" } else { "not available (QEMU)" });
+            kprintln!(
+                "  status: {}",
+                if cfg!(feature = "bsp-rpi5") {
+                    "RP1 PWM available"
+                } else {
+                    "not available (QEMU)"
+                }
+            );
         }
         "rtc" => {
             match rtc::get_time() {
-                Ok(dt) => kprintln!("RTC: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-                    dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second),
+                Ok(dt) => kprintln!(
+                    "RTC: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                    dt.year,
+                    dt.month,
+                    dt.day,
+                    dt.hour,
+                    dt.minute,
+                    dt.second
+                ),
                 Err(_) => kprintln!("RTC: unavailable"),
             }
             if rtc::check_alarm() {
@@ -522,7 +600,14 @@ fn dispatch(cmd: &str) {
         }
         "crypto" => {
             let supported = crate::crypto::hw::ArmCryptoEngine::detect();
-            kprintln!("ARMv8 Crypto Extensions: {}", if supported { "available" } else { "not available" });
+            kprintln!(
+                "ARMv8 Crypto Extensions: {}",
+                if supported {
+                    "available"
+                } else {
+                    "not available"
+                }
+            );
             kprintln!("  AES: ECB, CBC, CTR (128/256-bit keys)");
             kprintln!("  SHA-256: software (FIPS 180-4)");
             kprintln!("  CRC32: lookup table");
@@ -561,9 +646,17 @@ fn dispatch(cmd: &str) {
         }
         "security" => {
             kprintln!("--- Phase 14: Advanced Attack Hardening ---");
-            kprintln!("PAC:         supported={}, active={}", crate::pac::is_supported(), crate::pac::is_active());
+            kprintln!(
+                "PAC:         supported={}, active={}",
+                crate::pac::is_supported(),
+                crate::pac::is_active()
+            );
             kprintln!("Secure wipe: enabled={}", os_cfg::SECURE_WIPE_EN);
-            kprintln!("Rate limit:  {}/{}ms", os_cfg::SYSCALL_RATE_LIMIT, os_cfg::SYSCALL_RATE_WINDOW_MS);
+            kprintln!(
+                "Rate limit:  {}/{}ms",
+                os_cfg::SYSCALL_RATE_LIMIT,
+                os_cfg::SYSCALL_RATE_WINDOW_MS
+            );
             kprintln!("--- Phase 13: Security Hardening ---");
             kprintln!("Auth:        enabled={}", os_cfg::SHELL_AUTH_EN);
             kprintln!("Debug lock:  enabled={}", os_cfg::DEBUG_LOCKDOWN);
@@ -584,7 +677,9 @@ fn parse_ipv4(s: &str) -> Option<net::Ipv4Addr> {
         let part = parts.next()?;
         *octet = part.parse::<u8>().ok()?;
     }
-    if parts.next().is_some() { return None; }
+    if parts.next().is_some() {
+        return None;
+    }
     Some(net::Ipv4Addr(octets))
 }
 
@@ -597,7 +692,7 @@ fn parse_u64(s: &str) -> u64 {
 }
 
 fn hexdump(data: &[u8]) {
-    let rows = (data.len() + 15) / 16;
+    let rows = data.len().div_ceil(16);
     for row in 0..rows {
         let off = row * 16;
         let count = (data.len() - off).min(16);

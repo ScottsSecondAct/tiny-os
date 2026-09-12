@@ -31,7 +31,7 @@ impl BitmapAllocator {
 
     pub fn mark_range_used(&mut self, base: usize, size: usize) {
         let start_page = base / PAGE_SIZE;
-        let end_page = (base + size + PAGE_SIZE - 1) / PAGE_SIZE;
+        let end_page = (base + size).div_ceil(PAGE_SIZE);
         for page in start_page..end_page {
             if page < MAX_PAGES && !self.is_used(page) {
                 self.set_used(page);

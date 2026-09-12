@@ -1,6 +1,6 @@
-use core::cell::UnsafeCell;
-use crate::sched::{self, CriticalSection, WaitResult};
 use super::WaitQueue;
+use crate::sched::{self, CriticalSection, WaitResult};
+use core::cell::UnsafeCell;
 
 struct MsgQueueInner<const MSG_SIZE: usize, const CAPACITY: usize> {
     buffer: [[u8; MSG_SIZE]; CAPACITY],
@@ -32,6 +32,7 @@ impl<const MSG_SIZE: usize, const CAPACITY: usize> MsgQueue<MSG_SIZE, CAPACITY> 
         }
     }
 
+    #[allow(clippy::mut_from_ref)]
     fn inner(&self) -> &mut MsgQueueInner<MSG_SIZE, CAPACITY> {
         // SAFETY: Caller holds CriticalSection.
         unsafe { &mut *self.inner.get() }
@@ -98,11 +99,7 @@ impl<const MSG_SIZE: usize, const CAPACITY: usize> MsgQueue<MSG_SIZE, CAPACITY> 
         self.recv_impl(buf, 0)
     }
 
-    pub fn recv_timeout(
-        &self,
-        buf: &mut [u8; MSG_SIZE],
-        ticks: u32,
-    ) -> Result<(), &'static str> {
+    pub fn recv_timeout(&self, buf: &mut [u8; MSG_SIZE], ticks: u32) -> Result<(), &'static str> {
         self.recv_impl(buf, ticks)
     }
 

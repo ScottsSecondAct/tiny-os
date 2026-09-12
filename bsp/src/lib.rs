@@ -1,4 +1,6 @@
 #![no_std]
+#![allow(dead_code)]
+#![allow(clippy::new_without_default)]
 
 #[cfg(feature = "bsp-qemu")]
 pub mod qemu_virt;

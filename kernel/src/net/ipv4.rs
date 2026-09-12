@@ -1,5 +1,5 @@
+use super::{arp, ethernet, Ipv4Addr};
 use crate::netbuf;
-use super::{ethernet, arp, Ipv4Addr};
 
 pub const IPV4_HEADER_LEN: usize = 20;
 pub const PROTO_ICMP: u8 = 1;

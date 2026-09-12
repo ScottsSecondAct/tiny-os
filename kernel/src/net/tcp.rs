@@ -1,6 +1,6 @@
+use super::{ethernet, ipv4, Ipv4Addr};
 use crate::netbuf;
 use crate::os_cfg;
-use super::{ethernet, ipv4, Ipv4Addr};
 use arch::net::NetError;
 use core::cell::UnsafeCell;
 
@@ -73,7 +73,10 @@ fn inner() -> &'static mut TcpInner {
 
 pub fn connect(dst: Ipv4Addr, dst_port: u16) -> Result<u8, NetError> {
     let t = inner();
-    let slot = t.conns.iter().position(|c| c.state == TcpState::Closed)
+    let slot = t
+        .conns
+        .iter()
+        .position(|c| c.state == TcpState::Closed)
         .ok_or(NetError::QueueFull)?;
 
     let local_port = t.next_port;
@@ -215,8 +218,8 @@ pub fn process_rx(buf_idx: u16, ip_hdr: &ipv4::Ipv4Header) {
         }
         TcpState::Established => {
             let payload_off = tcp_off + data_offset;
-            let payload_len = (ip_hdr.total_len as usize)
-                .saturating_sub(ip_hdr.header_len + data_offset);
+            let payload_len =
+                (ip_hdr.total_len as usize).saturating_sub(ip_hdr.header_len + data_offset);
 
             if flags & TCP_FIN != 0 {
                 conn.recv_next = seq.wrapping_add(payload_len as u32).wrapping_add(1);

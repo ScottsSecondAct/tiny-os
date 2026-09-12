@@ -3,8 +3,8 @@
 // Implements the standard SDHCI register layout at the EMMC2 base address.
 // Supports PIO (Programmed I/O) mode for data transfer.
 
-use core::cell::UnsafeCell;
 use crate::block::{BlockDevice, BlockError};
+use core::cell::UnsafeCell;
 
 // SDHCI register offsets (all 32-bit aligned).
 const _SDHCI_DMA_ADDRESS: usize = 0x00;
@@ -120,10 +120,22 @@ struct Adma2Desc {
 }
 
 static mut ADMA2_TABLE: [Adma2Desc; 4] = [
-    Adma2Desc { attr_len: 0, addr: 0 },
-    Adma2Desc { attr_len: 0, addr: 0 },
-    Adma2Desc { attr_len: 0, addr: 0 },
-    Adma2Desc { attr_len: 0, addr: 0 },
+    Adma2Desc {
+        attr_len: 0,
+        addr: 0,
+    },
+    Adma2Desc {
+        attr_len: 0,
+        addr: 0,
+    },
+    Adma2Desc {
+        attr_len: 0,
+        addr: 0,
+    },
+    Adma2Desc {
+        attr_len: 0,
+        addr: 0,
+    },
 ];
 
 pub struct Emmc2 {
@@ -352,11 +364,7 @@ impl Emmc2 {
         let mut ocr = 0u32;
         let acmd41_arg = if _sd_v2 { 0x40FF_8000 } else { 0x00FF_8000 };
         for _ in 0..100 {
-            match self.send_app_command(
-                SD_ACMD_SEND_OP_COND,
-                acmd41_arg,
-                CMD_RESP_48,
-            ) {
+            match self.send_app_command(SD_ACMD_SEND_OP_COND, acmd41_arg, CMD_RESP_48) {
                 Ok(resp) => {
                     ocr = resp;
                     if ocr & (1 << 31) != 0 {
@@ -429,23 +437,26 @@ impl Emmc2 {
 
     fn try_sdr104(&mut self) -> Result<(), BlockError> {
         // Switch to 1.8V signaling.
-        let hc2 = self.read(SDHCI_HOST_CONTROL2 as usize) as u32;
+        let hc2 = self.read(SDHCI_HOST_CONTROL2);
         self.write(
-            SDHCI_HOST_CONTROL2 as usize,
+            SDHCI_HOST_CONTROL2,
             (hc2 & !0x7) | HC2_UHS_SDR104 | HC2_1V8_SIGNALING,
         );
         self.delay_us(5000);
 
         // Enable ADMA2 in host control register.
         let hc1 = self.read(SDHCI_HOST_CONTROL);
-        self.write(SDHCI_HOST_CONTROL, (hc1 & !(0x3 << 3)) | HOST_CTRL_DMA_SEL_ADMA2);
+        self.write(
+            SDHCI_HOST_CONTROL,
+            (hc1 & !(0x3 << 3)) | HOST_CTRL_DMA_SEL_ADMA2,
+        );
 
         // Set clock to 208 MHz.
         self.set_clock(208000)?;
 
         // Execute tuning (CMD19).
-        let hc2 = self.read(SDHCI_HOST_CONTROL2 as usize);
-        self.write(SDHCI_HOST_CONTROL2 as usize, hc2 | HC2_EXEC_TUNING);
+        let hc2 = self.read(SDHCI_HOST_CONTROL2);
+        self.write(SDHCI_HOST_CONTROL2, hc2 | HC2_EXEC_TUNING);
 
         for _ in 0..40 {
             let _ = self.send_command(
@@ -455,7 +466,7 @@ impl Emmc2 {
             );
             self.delay_us(1000);
 
-            let hc2 = self.read(SDHCI_HOST_CONTROL2 as usize);
+            let hc2 = self.read(SDHCI_HOST_CONTROL2);
             if hc2 & HC2_EXEC_TUNING == 0 {
                 if hc2 & HC2_TUNING_COMPLETE != 0 {
                     return Ok(());
@@ -465,8 +476,8 @@ impl Emmc2 {
         }
 
         // Tuning failed — revert to 25 MHz.
-        let hc2 = self.read(SDHCI_HOST_CONTROL2 as usize);
-        self.write(SDHCI_HOST_CONTROL2 as usize, hc2 & !(HC2_1V8_SIGNALING | 0x7));
+        let hc2 = self.read(SDHCI_HOST_CONTROL2);
+        self.write(SDHCI_HOST_CONTROL2, hc2 & !(HC2_1V8_SIGNALING | 0x7));
         let hc1 = self.read(SDHCI_HOST_CONTROL);
         self.write(SDHCI_HOST_CONTROL, hc1 & !(0x3 << 3));
         self.set_clock(25000)?;
@@ -479,8 +490,8 @@ impl Emmc2 {
 
         // SAFETY: ADMA2_TABLE is only accessed during serialized block I/O.
         unsafe {
-            ADMA2_TABLE[0].attr_len = (BLOCK_SIZE as u32) << 16
-                | ADMA2_VALID | ADMA2_END | ADMA2_ACT_TRAN;
+            ADMA2_TABLE[0].attr_len =
+                (BLOCK_SIZE as u32) << 16 | ADMA2_VALID | ADMA2_END | ADMA2_ACT_TRAN;
             ADMA2_TABLE[0].addr = buf.as_ptr() as u32;
 
             core::arch::asm!("dsb sy");
@@ -490,13 +501,21 @@ impl Emmc2 {
 
         self.write(SDHCI_BLOCK_SIZE_COUNT, (1 << 16) | BLOCK_SIZE as u32);
 
-        let addr = if self.sdhc { lba as u32 } else { (lba * BLOCK_SIZE as u64) as u32 };
+        let addr = if self.sdhc {
+            lba as u32
+        } else {
+            (lba * BLOCK_SIZE as u64) as u32
+        };
         self.write(SDHCI_INT_STATUS, 0xFFFF_FFFF);
         self.write(SDHCI_ARGUMENT, addr);
 
         let cmd_val = (SD_CMD_READ_SINGLE << CMD_INDEX_SHIFT)
-            | CMD_RESP_48 | CMD_CRC_CHECK | CMD_INDEX_CHECK
-            | CMD_DATA_PRESENT | XFER_READ | XFER_BLOCK_COUNT_EN;
+            | CMD_RESP_48
+            | CMD_CRC_CHECK
+            | CMD_INDEX_CHECK
+            | CMD_DATA_PRESENT
+            | XFER_READ
+            | XFER_BLOCK_COUNT_EN;
         self.write(SDHCI_XFER_MODE_CMD, cmd_val);
 
         for _ in 0..PIO_TIMEOUT {
@@ -507,7 +526,9 @@ impl Emmc2 {
             }
             if status & INT_XFER_COMPLETE != 0 {
                 self.write(SDHCI_INT_STATUS, INT_XFER_COMPLETE);
-                unsafe { core::arch::asm!("dsb sy"); }
+                unsafe {
+                    core::arch::asm!("dsb sy");
+                }
                 return Ok(());
             }
             core::hint::spin_loop();
@@ -521,8 +542,8 @@ impl Emmc2 {
 
         // SAFETY: Same as read_block_adma2.
         unsafe {
-            ADMA2_TABLE[0].attr_len = (BLOCK_SIZE as u32) << 16
-                | ADMA2_VALID | ADMA2_END | ADMA2_ACT_TRAN;
+            ADMA2_TABLE[0].attr_len =
+                (BLOCK_SIZE as u32) << 16 | ADMA2_VALID | ADMA2_END | ADMA2_ACT_TRAN;
             ADMA2_TABLE[0].addr = buf.as_ptr() as u32;
 
             core::arch::asm!("dsb sy");
@@ -532,13 +553,20 @@ impl Emmc2 {
 
         self.write(SDHCI_BLOCK_SIZE_COUNT, (1 << 16) | BLOCK_SIZE as u32);
 
-        let addr = if self.sdhc { lba as u32 } else { (lba * BLOCK_SIZE as u64) as u32 };
+        let addr = if self.sdhc {
+            lba as u32
+        } else {
+            (lba * BLOCK_SIZE as u64) as u32
+        };
         self.write(SDHCI_INT_STATUS, 0xFFFF_FFFF);
         self.write(SDHCI_ARGUMENT, addr);
 
         let cmd_val = (SD_CMD_WRITE_SINGLE << CMD_INDEX_SHIFT)
-            | CMD_RESP_48 | CMD_CRC_CHECK | CMD_INDEX_CHECK
-            | CMD_DATA_PRESENT | XFER_BLOCK_COUNT_EN;
+            | CMD_RESP_48
+            | CMD_CRC_CHECK
+            | CMD_INDEX_CHECK
+            | CMD_DATA_PRESENT
+            | XFER_BLOCK_COUNT_EN;
         self.write(SDHCI_XFER_MODE_CMD, cmd_val);
 
         for _ in 0..PIO_TIMEOUT {
@@ -570,11 +598,11 @@ impl Emmc2 {
 
         if csd_structure == 1 {
             // CSD v2 (SDHC/SDXC)
-            let c_size = ((resp1 >> 8) & 0x3F_FFFF) as u64;
+            let c_size = (resp1 >> 8) & 0x3F_FFFF;
             (c_size + 1) * 1024
         } else {
             // CSD v1 (SDSC)
-            let c_size = (((resp2 & 0x3) << 10) | ((resp1 >> 22) & 0x3FF)) as u64;
+            let c_size = ((resp2 & 0x3) << 10) | ((resp1 >> 22) & 0x3FF);
             let c_size_mult = ((resp1 >> 7) & 0x7) as u32;
             let read_bl_len = ((resp2 >> 8) & 0xF) as u32;
             let mult = 1u64 << (c_size_mult + 2);
@@ -590,7 +618,11 @@ impl Emmc2 {
         // Set block size and count.
         self.write(SDHCI_BLOCK_SIZE_COUNT, (1 << 16) | BLOCK_SIZE as u32);
 
-        let addr = if self.sdhc { lba as u32 } else { (lba * BLOCK_SIZE as u64) as u32 };
+        let addr = if self.sdhc {
+            lba as u32
+        } else {
+            (lba * BLOCK_SIZE as u64) as u32
+        };
 
         // Clear interrupts.
         self.write(SDHCI_INT_STATUS, 0xFFFF_FFFF);
@@ -670,7 +702,11 @@ impl Emmc2 {
 
         self.write(SDHCI_BLOCK_SIZE_COUNT, (1 << 16) | BLOCK_SIZE as u32);
 
-        let addr = if self.sdhc { lba as u32 } else { (lba * BLOCK_SIZE as u64) as u32 };
+        let addr = if self.sdhc {
+            lba as u32
+        } else {
+            (lba * BLOCK_SIZE as u64) as u32
+        };
 
         self.write(SDHCI_INT_STATUS, 0xFFFF_FFFF);
         self.write(SDHCI_ARGUMENT, addr);

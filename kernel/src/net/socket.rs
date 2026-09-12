@@ -1,7 +1,7 @@
-use super::{tcp, udp, ipv4, Ipv4Addr};
+use super::{ipv4, tcp, udp, Ipv4Addr};
+use crate::os_cfg;
 use arch::net::NetError;
 use core::cell::UnsafeCell;
-use crate::os_cfg;
 
 const MAX_SOCKETS: usize = os_cfg::MAX_SOCKETS;
 
@@ -133,9 +133,7 @@ pub fn sendto(fd: u8, data: &[u8], addr: Ipv4Addr, port: u16) -> Result<usize, N
             udp::send(addr, port, src_port, data);
             Ok(data.len())
         }
-        SockType::Tcp => {
-            tcp::send_data(s.proto_handle, data)
-        }
+        SockType::Tcp => tcp::send_data(s.proto_handle, data),
     }
 }
 
@@ -155,27 +153,24 @@ pub fn recvfrom(fd: u8, buf: &mut [u8]) -> Result<(usize, Ipv4Addr, u16), NetErr
         return Err(NetError::BadFd);
     }
     match s.sock_type {
-        SockType::Udp => {
-            match udp::recv(s.proto_handle) {
-                Some((buf_idx, src_ip, src_port)) => {
-                    let nbuf = netbuf::get(buf_idx).ok_or(NetError::InvalidBuf)?;
-                    let data = nbuf.as_slice();
-                    let eth_ip_udp_hdr = super::ethernet::ETH_HEADER_LEN
-                        + ipv4::IPV4_HEADER_LEN + 8;
-                    if data.len() > eth_ip_udp_hdr {
-                        let payload = &data[eth_ip_udp_hdr..];
-                        let copy_len = payload.len().min(buf.len());
-                        buf[..copy_len].copy_from_slice(&payload[..copy_len]);
-                        crate::netbuf::free(nbuf);
-                        Ok((copy_len, src_ip, src_port))
-                    } else {
-                        crate::netbuf::free(nbuf);
-                        Ok((0, src_ip, src_port))
-                    }
+        SockType::Udp => match udp::recv(s.proto_handle) {
+            Some((buf_idx, src_ip, src_port)) => {
+                let nbuf = netbuf::get(buf_idx).ok_or(NetError::InvalidBuf)?;
+                let data = nbuf.as_slice();
+                let eth_ip_udp_hdr = super::ethernet::ETH_HEADER_LEN + ipv4::IPV4_HEADER_LEN + 8;
+                if data.len() > eth_ip_udp_hdr {
+                    let payload = &data[eth_ip_udp_hdr..];
+                    let copy_len = payload.len().min(buf.len());
+                    buf[..copy_len].copy_from_slice(&payload[..copy_len]);
+                    crate::netbuf::free(nbuf);
+                    Ok((copy_len, src_ip, src_port))
+                } else {
+                    crate::netbuf::free(nbuf);
+                    Ok((0, src_ip, src_port))
                 }
-                None => Ok((0, Ipv4Addr::ZERO, 0)),
             }
-        }
+            None => Ok((0, Ipv4Addr::ZERO, 0)),
+        },
         SockType::Tcp => {
             let n = tcp::recv_data(s.proto_handle, buf)?;
             Ok((n, s.remote_ip, s.remote_port))
@@ -206,7 +201,10 @@ pub fn close(fd: u8) {
 
 pub fn socket_count() -> usize {
     let t = table();
-    t.sockets.iter().filter(|s| s.state != SockState::Free).count()
+    t.sockets
+        .iter()
+        .filter(|s| s.state != SockState::Free)
+        .count()
 }
 
 use crate::netbuf;

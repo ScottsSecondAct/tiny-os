@@ -38,12 +38,12 @@ const DR: usize = 0x60;
 // Status Register bits
 const SR_BUSY: u32 = 1 << 0;
 const SR_TFNF: u32 = 1 << 1; // TX FIFO Not Full
-const SR_TFE: u32 = 1 << 2;  // TX FIFO Empty
+const SR_TFE: u32 = 1 << 2; // TX FIFO Empty
 const SR_RFNE: u32 = 1 << 3; // RX FIFO Not Empty
 
 // CTRLR0 fields
 const CTRLR0_DFS_MASK: u32 = 0xF;
-const CTRLR0_SCPH: u32 = 1 << 6;  // Serial Clock Phase
+const CTRLR0_SCPH: u32 = 1 << 6; // Serial Clock Phase
 const CTRLR0_SCPOL: u32 = 1 << 7; // Serial Clock Polarity
 const CTRLR0_TMOD_TR: u32 = 0 << 8; // TX and RX mode
 

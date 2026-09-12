@@ -98,23 +98,33 @@ fn syscall2(nr: u64, a0: u64, a1: u64) -> u64 {
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_yield() { syscall2(SYS_YIELD, 0, 0); }
+fn sys_yield() {
+    syscall2(SYS_YIELD, 0, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall2(SYS_DELAY, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall2(SYS_DELAY, ms as u64, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall2(SYS_WRITE, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall2(SYS_WRITE, ptr as u64, len as u64);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_uptime() -> u64 { syscall2(SYS_UPTIME, 0, 0) }
+fn sys_uptime() -> u64 {
+    syscall2(SYS_UPTIME, 0, 0)
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_temperature() -> i32 { syscall2(SYS_TEMPERATURE, 0, 0) as i32 }
+fn sys_temperature() -> i32 {
+    syscall2(SYS_TEMPERATURE, 0, 0) as i32
+}
 
 // FS syscalls
 #[link_section = ".user.text"]
@@ -290,7 +300,9 @@ fn wstatic(buf: *mut u8, pos: usize, src: *const u8, len: usize) -> usize {
 #[inline(always)]
 fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     if val == 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'0'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'0');
+        }
         return pos + 1;
     }
     let mut tmp = [0u8; 20];
@@ -298,7 +310,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     let mut n: usize = 0;
     let mut v = val;
     while v > 0 {
-        unsafe { core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8)); }
+        unsafe {
+            core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8));
+        }
         v /= 10;
         n = n.wrapping_add(1);
     }
@@ -354,7 +368,9 @@ fn draw_rect(frame: *mut u8, x0: usize, y0: usize, x1: usize, y1: usize) {
     while y <= y1 && y < FRAME_H {
         let mut x = x0;
         while x <= x1 && x < FRAME_W {
-            unsafe { core::ptr::write_volatile(frame.add(y * FRAME_W + x), 200); }
+            unsafe {
+                core::ptr::write_volatile(frame.add(y * FRAME_W + x), 200);
+            }
             x += 1;
         }
         y += 1;
@@ -377,27 +393,29 @@ fn generate_frame(frame: *mut u8, count: u64, seed: u64) {
     // Clear frame to black (background).
     let mut i: usize = 0;
     while i < FRAME_SIZE {
-        unsafe { core::ptr::write_volatile(frame.add(i), 0u8); }
+        unsafe {
+            core::ptr::write_volatile(frame.add(i), 0u8);
+        }
         i += 1;
     }
 
     let c = count as u32;
 
-    if c % 7 == 0 {
+    if c.is_multiple_of(7) {
         // ── Defect: two blobs ──
         // First blob: (3,3)-(12,14) = 10x12 = 120 pixels
         draw_rect(frame, 3, 3, 12, 14);
         // Second blob: (20,18)-(29,29) = 10x12 = 120 pixels
         draw_rect(frame, 20, 18, 29, 29);
-    } else if c % 13 == 0 {
+    } else if c.is_multiple_of(13) {
         // ── Defect: oversized blob ──
         // (1,1)-(30,30) = 30x30 = 900 pixels (> 800)
         draw_rect(frame, 1, 1, 30, 30);
-    } else if c % 19 == 0 {
+    } else if c.is_multiple_of(19) {
         // ── Defect: undersized blob ──
         // (12,12)-(19,19) = 8x8 = 64 pixels (< 200)
         draw_rect(frame, 12, 12, 19, 19);
-    } else if c % 23 == 0 {
+    } else if c.is_multiple_of(23) {
         // ── Defect: off-center blob ──
         // (0,0)-(19,19) = 20x20 = 400 pixels, centroid at ~(9,9)
         draw_rect(frame, 0, 0, 19, 19);
@@ -405,13 +423,13 @@ fn generate_frame(frame: *mut u8, count: u64, seed: u64) {
         // ── Normal: single centered blob ──
         // Slight position variation based on counter bits and temperature seed.
         let cs = count.wrapping_add(seed) as u32;
-        let ox = ((cs & 3) as i32) - 1;        // -1, 0, 1, or 2
+        let ox = ((cs & 3) as i32) - 1; // -1, 0, 1, or 2
         let oy = (((cs >> 2) & 3) as i32) - 1; // -1, 0, 1, or 2
-        let x0 = (6 + ox) as usize;    // 5..8
-        let y0 = (6 + oy) as usize;    // 5..8
-        let x1 = (25 + ox) as usize;   // 24..27
-        let y1 = (25 + oy) as usize;   // 24..27
-        // 20x20 = 400 pixels, centroid near (15,15)
+        let x0 = (6 + ox) as usize; // 5..8
+        let y0 = (6 + oy) as usize; // 5..8
+        let x1 = (25 + ox) as usize; // 24..27
+        let y1 = (25 + oy) as usize; // 24..27
+                                     // 20x20 = 400 pixels, centroid near (15,15)
         draw_rect(frame, x0, y0, x1, y1);
     }
 }
@@ -423,7 +441,9 @@ fn threshold_inplace(frame: *mut u8) {
     while i < FRAME_SIZE {
         let val = unsafe { core::ptr::read_volatile(frame.add(i)) };
         let bin = if val > THRESHOLD { 1u8 } else { 0u8 };
-        unsafe { core::ptr::write_volatile(frame.add(i), bin); }
+        unsafe {
+            core::ptr::write_volatile(frame.add(i), bin);
+        }
         i += 1;
     }
 }
@@ -476,10 +496,15 @@ fn analyze_frame(frame: *const u8) -> FrameMetrics {
         y += 1;
     }
 
-    let cx = if area > 0 { sum_x / area } else { CENTER_X };
-    let cy = if area > 0 { sum_y / area } else { CENTER_Y };
+    let cx = sum_x.checked_div(area).unwrap_or(CENTER_X);
+    let cy = sum_y.checked_div(area).unwrap_or(CENTER_Y);
 
-    FrameMetrics { area, blob_count, cx, cy }
+    FrameMetrics {
+        area,
+        blob_count,
+        cx,
+        cy,
+    }
 }
 
 /// Classify an inspection result as PASS or FAIL with a confidence score.
@@ -504,19 +529,19 @@ fn classify(m: &FrameMetrics) -> (u8, u32) {
         return (REASON_OVERSIZED, 0);
     }
 
-    let dx = if m.cx > CENTER_X { m.cx - CENTER_X } else { CENTER_X - m.cx };
-    let dy = if m.cy > CENTER_Y { m.cy - CENTER_Y } else { CENTER_Y - m.cy };
+    let dx = m.cx.abs_diff(CENTER_X);
+    let dy = m.cy.abs_diff(CENTER_Y);
     if dx > CENTER_MAX_DIST || dy > CENTER_MAX_DIST {
         return (REASON_OFF_CENTER, 0);
     }
 
     // PASS: compute confidence score.
     let mut conf: u32 = 100;
-    let area_dev = if m.area > AREA_IDEAL { m.area - AREA_IDEAL } else { AREA_IDEAL - m.area };
+    let area_dev = m.area.abs_diff(AREA_IDEAL);
     let area_pen = area_dev / 10;
-    conf = if area_pen < conf { conf - area_pen } else { 0 };
+    conf = conf.saturating_sub(area_pen);
     let center_pen = (dx + dy) * 3;
-    conf = if center_pen < conf { conf - center_pen } else { 0 };
+    conf = conf.saturating_sub(center_pen);
 
     (REASON_PASS, conf)
 }
@@ -527,7 +552,7 @@ fn classify(m: &FrameMetrics) -> (u8, u32) {
 fn reason_str(reason: u8) -> (*const u8, usize) {
     match reason {
         REASON_NO_OBJECT => (S_NO_OBJECT.as_ptr(), 9),
-        REASON_MULTIPLE  => (S_MULTIPLE.as_ptr(), 8),
+        REASON_MULTIPLE => (S_MULTIPLE.as_ptr(), 8),
         REASON_UNDERSIZED => (S_UNDERSIZED.as_ptr(), 10),
         REASON_OVERSIZED => (S_OVERSIZED.as_ptr(), 9),
         REASON_OFF_CENTER => (S_OFF_CENTER.as_ptr(), 10),
@@ -542,8 +567,14 @@ fn reason_str(reason: u8) -> (*const u8, usize) {
 /// FAIL: "[NNNNN] FAIL:multiple area=240 blobs=2 cx=16 cy=16 t=45\n"
 /// Returns the number of bytes written.
 #[link_section = ".user.text"]
-fn format_result(buf: *mut u8, count: u64, reason: u8, confidence: u32,
-                 m: &FrameMetrics, temp_c: u32) -> usize {
+fn format_result(
+    buf: *mut u8,
+    count: u64,
+    reason: u8,
+    confidence: u32,
+    m: &FrameMetrics,
+    temp_c: u32,
+) -> usize {
     let mut pos: usize = 0;
 
     // "[NNNNN] "
@@ -600,8 +631,14 @@ fn format_alert(buf: *mut u8, count: u64, reason: u8, m: &FrameMetrics) -> usize
 /// Format the statistics dashboard line.
 /// "[vision] inspected=100 pass=94 fail=6 yield=94% avg_time=5ms\n"
 #[link_section = ".user.text"]
-fn format_stats(buf: *mut u8, count: u64, pass: u64, fail: u64,
-                yield_pct: u64, avg_ms: u64) -> usize {
+fn format_stats(
+    buf: *mut u8,
+    count: u64,
+    pass: u64,
+    fail: u64,
+    yield_pct: u64,
+    avg_ms: u64,
+) -> usize {
     let mut pos: usize = 0;
 
     pos = wstatic(buf, pos, S_STAT_INSP.as_ptr(), 19);
@@ -669,16 +706,15 @@ pub fn machine_vision_main(_arg: usize) -> ! {
         // ── Stage 1: Frame acquisition ──
         // Fire GPIO trigger/strobe sequence if hardware is available.
         if gpio_ok {
-            sys_gpio_write(PIN_STROBE, 1);  // illumination on
+            sys_gpio_write(PIN_STROBE, 1); // illumination on
             sys_gpio_write(PIN_TRIGGER, 1); // trigger capture
-            sys_delay(10);                   // exposure time
+            sys_delay(10); // exposure time
             sys_gpio_write(PIN_TRIGGER, 0); // trigger off
-            sys_gpio_write(PIN_STROBE, 0);  // illumination off
+            sys_gpio_write(PIN_STROBE, 0); // illumination off
         }
 
         // Generate simulated frame (1024 bytes on stack).
-        let mut frame: core::mem::MaybeUninit<[u8; FRAME_SIZE]> =
-            core::mem::MaybeUninit::uninit();
+        let mut frame: core::mem::MaybeUninit<[u8; FRAME_SIZE]> = core::mem::MaybeUninit::uninit();
         let fp = frame.as_mut_ptr() as *mut u8;
         generate_frame(fp, count, temp_seed);
 
@@ -694,7 +730,11 @@ pub fn machine_vision_main(_arg: usize) -> ! {
 
         // Read SoC temperature for result log (in whole degrees C).
         let temp_now = sys_temperature();
-        let temp_c: u32 = if temp_now > 0 { (temp_now as u32) / 1000 } else { 0 };
+        let temp_c: u32 = if temp_now > 0 {
+            (temp_now as u32) / 1000
+        } else {
+            0
+        };
 
         // ── Update timing statistics ──
         let t_end = sys_uptime();
@@ -705,13 +745,16 @@ pub fn machine_vision_main(_arg: usize) -> ! {
         } else {
             fail_count = fail_count.wrapping_add(1);
         }
-        if proc_time < min_time { min_time = proc_time; }
-        if proc_time > max_time { max_time = proc_time; }
+        if proc_time < min_time {
+            min_time = proc_time;
+        }
+        if proc_time > max_time {
+            max_time = proc_time;
+        }
         sum_time = sum_time.wrapping_add(proc_time);
 
         // ── Stage 5: Format and output result ──
-        let mut outbuf: core::mem::MaybeUninit<[u8; 128]> =
-            core::mem::MaybeUninit::uninit();
+        let mut outbuf: core::mem::MaybeUninit<[u8; 128]> = core::mem::MaybeUninit::uninit();
         let bp = outbuf.as_mut_ptr() as *mut u8;
 
         let result_len = format_result(bp, count, reason, confidence, &metrics, temp_c);
@@ -734,19 +777,10 @@ pub fn machine_vision_main(_arg: usize) -> ! {
         }
 
         // ── Stage 7: Statistics dashboard (every 10 inspections) ──
-        if count % STATS_INTERVAL == 0 {
-            let yield_pct = if count > 0 {
-                pass_count * 100 / count
-            } else {
-                0
-            };
-            let avg_ms = if count > 0 {
-                sum_time / count
-            } else {
-                0
-            };
-            let stats_len = format_stats(bp, count, pass_count, fail_count,
-                                         yield_pct, avg_ms);
+        if count.is_multiple_of(STATS_INTERVAL) {
+            let yield_pct = (pass_count * 100).checked_div(count).unwrap_or(0);
+            let avg_ms = sum_time.checked_div(count).unwrap_or(0);
+            let stats_len = format_stats(bp, count, pass_count, fail_count, yield_pct, avg_ms);
             sys_write_raw(bp, stats_len);
         }
 

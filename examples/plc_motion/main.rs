@@ -37,28 +37,28 @@ const E_PERM: u64 = u64::MAX - 8;
 
 // ── GPIO pin assignments ─────────────────────────────────────────────────────
 
-const PIN_ESTOP: u8 = 4;       // Emergency stop (active low: 0 = ESTOP active)
-const PIN_START: u8 = 17;      // Start button
-const PIN_HOME: u8 = 27;       // Home sensor (axis at home position)
-const PIN_LIMIT: u8 = 22;      // Limit switch (end of travel)
+const PIN_ESTOP: u8 = 4; // Emergency stop (active low: 0 = ESTOP active)
+const PIN_START: u8 = 17; // Start button
+const PIN_HOME: u8 = 27; // Home sensor (axis at home position)
+const PIN_LIMIT: u8 = 22; // Limit switch (end of travel)
 const PIN_STATUS_LED: u8 = 23; // Status LED output
-const PIN_MOTOR_EN: u8 = 24;   // Motor enable relay output
-const PWM_MOTOR_CH: u8 = 0;    // PWM channel for motor speed
+const PIN_MOTOR_EN: u8 = 24; // Motor enable relay output
+const PWM_MOTOR_CH: u8 = 0; // PWM channel for motor speed
 
 // ── Motion profile constants ─────────────────────────────────────────────────
 
-const SCAN_PERIOD_MS: u64 = 10;        // 10 ms PLC scan cycle
-const DIAG_INTERVAL: u64 = 100;        // Print diagnostics every 100 scans (~1s)
-const TARGET_SPEED: u64 = 80;          // Target duty cycle %
-const ACCEL_RATE: u64 = 2;             // % per scan cycle
-const HOMING_SPEED: u64 = 20;          // Slow speed for homing
-const TARGET_POSITION: u64 = 5000;     // Target position in step counts
-const DECEL_DISTANCE: u64 = 800;       // Begin deceleration this many steps before target
-const PWM_FREQ_HZ: u64 = 20000;        // 20 kHz PWM for motor drive
+const SCAN_PERIOD_MS: u64 = 10; // 10 ms PLC scan cycle
+const DIAG_INTERVAL: u64 = 100; // Print diagnostics every 100 scans (~1s)
+const TARGET_SPEED: u64 = 80; // Target duty cycle %
+const ACCEL_RATE: u64 = 2; // % per scan cycle
+const HOMING_SPEED: u64 = 20; // Slow speed for homing
+const TARGET_POSITION: u64 = 5000; // Target position in step counts
+const DECEL_DISTANCE: u64 = 800; // Begin deceleration this many steps before target
+const PWM_FREQ_HZ: u64 = 20000; // 20 kHz PWM for motor drive
 
 // Simulation timing (in scan cycles)
-const SIM_START_PRESS_CYCLE: u64 = 300;  // ~3 seconds
-const SIM_HOME_FOUND_CYCLE: u64 = 500;   // ~5 seconds
+const SIM_START_PRESS_CYCLE: u64 = 300; // ~3 seconds
+const SIM_HOME_FOUND_CYCLE: u64 = 500; // ~5 seconds
 
 // ── PLC states ───────────────────────────────────────────────────────────────
 
@@ -95,15 +95,21 @@ fn syscall2(nr: u64, a0: u64, a1: u64) -> u64 {
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall2(SYS_DELAY, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall2(SYS_DELAY, ms as u64, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall2(SYS_WRITE, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall2(SYS_WRITE, ptr as u64, len as u64);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_uptime() -> u64 { syscall2(SYS_UPTIME, 0, 0) }
+fn sys_uptime() -> u64 {
+    syscall2(SYS_UPTIME, 0, 0)
+}
 
 // GPIO syscalls
 #[link_section = ".user.text"]
@@ -128,7 +134,13 @@ fn sys_gpio_write(pin: u8, val: u8) -> u64 {
 #[link_section = ".user.text"]
 #[inline(always)]
 fn sys_pwm_configure(channel: u8, freq_hz: u32, duty: u8) -> u64 {
-    syscall4(SYS_PWM, PWM_CONFIGURE, channel as u64, freq_hz as u64, duty as u64)
+    syscall4(
+        SYS_PWM,
+        PWM_CONFIGURE,
+        channel as u64,
+        freq_hz as u64,
+        duty as u64,
+    )
 }
 
 #[link_section = ".user.text"]
@@ -270,7 +282,9 @@ fn wstatic(buf: *mut u8, pos: usize, src: *const u8, len: usize) -> usize {
 #[inline(always)]
 fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     if val == 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'0'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'0');
+        }
         return pos + 1;
     }
     let mut tmp = [0u8; 20];
@@ -278,7 +292,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     let mut n: usize = 0;
     let mut v = val;
     while v > 0 {
-        unsafe { core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8)); }
+        unsafe {
+            core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8));
+        }
         v /= 10;
         n = n.wrapping_add(1);
     }
@@ -308,10 +324,10 @@ fn is_error(val: u64) -> bool {
 /// Inputs read each scan cycle.
 #[derive(Clone, Copy)]
 struct PlcInputs {
-    estop: bool,    // true = ESTOP active (pressed / active low)
-    start: bool,    // true = start button pressed
-    home: bool,     // true = home sensor triggered
-    limit: bool,    // true = limit switch hit
+    estop: bool, // true = ESTOP active (pressed / active low)
+    start: bool, // true = start button pressed
+    home: bool,  // true = home sensor triggered
+    limit: bool, // true = limit switch hit
 }
 
 /// Read all digital inputs from GPIO, or simulate them.
@@ -320,10 +336,10 @@ fn read_inputs(sim: bool, cycle: u64) -> PlcInputs {
     if sim {
         // Simulation: manufacture input events at deterministic times
         PlcInputs {
-            estop: false,       // ESTOP not active in simulation
+            estop: false, // ESTOP not active in simulation
             start: cycle >= SIM_START_PRESS_CYCLE,
             home: cycle >= SIM_HOME_FOUND_CYCLE,
-            limit: false,       // No unexpected limit in simulation
+            limit: false, // No unexpected limit in simulation
         }
     } else {
         // Hardware: read GPIO pins
@@ -346,11 +362,11 @@ fn write_status_led(sim: bool, cycle: u64, state: u8) {
     // Blink pattern: IDLE=slow 1Hz, HOMING=fast 5Hz, RUNNING=solid on,
     //                ESTOP=very fast 10Hz, FAULT=off
     let led_on = match state {
-        STATE_IDLE    => (cycle / 50) % 2 == 0,    // 1 Hz (50 scans on, 50 off)
-        STATE_HOMING  => (cycle / 10) % 2 == 0,    // 5 Hz
-        STATE_RUNNING => true,                       // Solid on
-        STATE_ESTOP   => (cycle / 5) % 2 == 0,      // 10 Hz
-        _             => false,                      // FAULT = off
+        STATE_IDLE => (cycle / 50).is_multiple_of(2), // 1 Hz (50 scans on, 50 off)
+        STATE_HOMING => (cycle / 10).is_multiple_of(2), // 5 Hz
+        STATE_RUNNING => true,                        // Solid on
+        STATE_ESTOP => (cycle / 5).is_multiple_of(2), // 10 Hz
+        _ => false,                                   // FAULT = off
     };
     if !sim {
         sys_gpio_write(PIN_STATUS_LED, if led_on { 1 } else { 0 });
@@ -378,11 +394,11 @@ fn set_motor_speed(sim: bool, duty: u64) {
 #[link_section = ".user.text"]
 fn state_name_ptr_len(state: u8) -> (*const u8, usize) {
     match state {
-        STATE_IDLE    => (ST_IDLE.as_ptr(), 4),
-        STATE_HOMING  => (ST_HOMING.as_ptr(), 6),
+        STATE_IDLE => (ST_IDLE.as_ptr(), 4),
+        STATE_HOMING => (ST_HOMING.as_ptr(), 6),
         STATE_RUNNING => (ST_RUNNING.as_ptr(), 7),
-        STATE_ESTOP   => (ST_ESTOP.as_ptr(), 5),
-        _             => (ST_FAULT.as_ptr(), 5),
+        STATE_ESTOP => (ST_ESTOP.as_ptr(), 5),
+        _ => (ST_FAULT.as_ptr(), 5),
     }
 }
 
@@ -446,13 +462,13 @@ pub fn plc_motion_main(_arg: usize) -> ! {
         sys_write_raw(MSG_OK.as_ptr(), MSG_OK.len());
 
         // Configure remaining GPIO input pins
-        sys_gpio_set_mode(PIN_START, 0);   // Input
-        sys_gpio_set_mode(PIN_HOME, 0);    // Input
-        sys_gpio_set_mode(PIN_LIMIT, 0);   // Input
+        sys_gpio_set_mode(PIN_START, 0); // Input
+        sys_gpio_set_mode(PIN_HOME, 0); // Input
+        sys_gpio_set_mode(PIN_LIMIT, 0); // Input
 
         // Configure GPIO output pins
         sys_gpio_set_mode(PIN_STATUS_LED, 1); // Output
-        sys_gpio_set_mode(PIN_MOTOR_EN, 1);   // Output
+        sys_gpio_set_mode(PIN_MOTOR_EN, 1); // Output
 
         // Initialize PWM for motor
         sys_write_raw(MSG_INIT_PWM.as_ptr(), MSG_INIT_PWM.len());
@@ -473,9 +489,9 @@ pub fn plc_motion_main(_arg: usize) -> ! {
     // ── PLC state variables ──────────────────────────────────────────────
 
     let mut state: u8 = STATE_IDLE;
-    let mut position: u64 = 0;         // Simulated axis position (step count)
-    let mut speed: u64 = 0;            // Current speed (duty %)
-    let mut cycle_count: u64 = 0;      // Total scan cycles
+    let mut position: u64 = 0; // Simulated axis position (step count)
+    let mut speed: u64 = 0; // Current speed (duty %)
+    let mut cycle_count: u64 = 0; // Total scan cycles
 
     // Scan timing statistics
     let mut scan_min: u64 = u64::MAX;
@@ -567,11 +583,7 @@ pub fn plc_motion_main(_arg: usize) -> ! {
                         write_motor_enable(sim, false);
                         sys_write_raw(MSG_LIMIT_FAULT.as_ptr(), MSG_LIMIT_FAULT.len());
                     } else {
-                        let remaining = if position < TARGET_POSITION {
-                            TARGET_POSITION - position
-                        } else {
-                            0
-                        };
+                        let remaining = TARGET_POSITION.saturating_sub(position);
 
                         if remaining == 0 {
                             // Motion complete — stop and return to idle
@@ -587,7 +599,11 @@ pub fn plc_motion_main(_arg: usize) -> ! {
                             // Deceleration zone: ramp down proportionally
                             let decel_target = (remaining * TARGET_SPEED) / DECEL_DISTANCE;
                             let min_speed: u64 = 5; // minimum creep speed
-                            let target = if decel_target > min_speed { decel_target } else { min_speed };
+                            let target = if decel_target > min_speed {
+                                decel_target
+                            } else {
+                                min_speed
+                            };
                             if speed > target {
                                 if speed >= ACCEL_RATE {
                                     speed = speed.wrapping_sub(ACCEL_RATE);
@@ -660,13 +676,17 @@ pub fn plc_motion_main(_arg: usize) -> ! {
         // Log state transition messages are already printed above.
 
         // Periodic diagnostics every DIAG_INTERVAL scans
-        if cycle_count % DIAG_INTERVAL == 0 {
-            let scan_avg = if scan_timing_count > 0 {
-                scan_sum / scan_timing_count
-            } else {
-                0
-            };
-            print_diagnostics(state, position, speed, scan_elapsed, scan_min, scan_max, scan_avg);
+        if cycle_count.is_multiple_of(DIAG_INTERVAL) {
+            let scan_avg = scan_sum.checked_div(scan_timing_count).unwrap_or(0);
+            print_diagnostics(
+                state,
+                position,
+                speed,
+                scan_elapsed,
+                scan_min,
+                scan_max,
+                scan_avg,
+            );
         }
 
         // Warn on overrun

@@ -55,7 +55,7 @@ pub const MAX_POOLS: usize = 16;
 
 // --- Budget / Deadline ---
 
-pub const BUDGET_EN: bool = if SAFETY_CRITICAL { true } else { false };
+pub const BUDGET_EN: bool = SAFETY_CRITICAL;
 pub const DEADLINE_DETECT_EN: bool = false;
 
 // --- Interrupt ---
@@ -71,7 +71,7 @@ pub const LOG_MODULE_SIZE: usize = 8;
 
 // --- Diagnostics ---
 
-pub const STATS_EN: bool = if SAFETY_CRITICAL { true } else { false };
+pub const STATS_EN: bool = SAFETY_CRITICAL;
 pub const DIAG_REGION_SIZE: usize = 4096;
 pub const REBOOT_ON_FAULT: bool = false;
 
@@ -137,33 +137,61 @@ pub const NETBUF_HEADROOM: usize = 64;
 // Compile-time validation (spec section 10.2, 14 assertions)
 // =========================================================================
 
-const _: () = assert!(MAX_TASKS >= 1 && MAX_TASKS <= 256,
-    "OS_CFG_MAX_TASKS must be 1..=256");
-const _: () = assert!(TICK_RATE_HZ >= 100 && TICK_RATE_HZ <= 10_000,
-    "OS_CFG_TICK_RATE_HZ must be 100..=10000");
-const _: () = assert!(PRIO_LEVELS == 8 || PRIO_LEVELS == 32 || PRIO_LEVELS == 256,
-    "OS_CFG_PRIO_LEVELS must be 8, 32, or 256");
-const _: () = assert!(TIMESLICE_TICKS >= 1 && TIMESLICE_TICKS <= 1000,
-    "OS_CFG_TIMESLICE_TICKS must be 1..=1000");
-const _: () = assert!(SMP_CORES >= 1 && SMP_CORES <= 4,
-    "OS_CFG_SMP_CORES must be 1..=4");
-const _: () = assert!(USER_STACK_SIZE >= 1024 && USER_STACK_SIZE <= 1_048_576,
-    "OS_CFG_USER_STACK_SIZE must be 1024..=1048576");
-const _: () = assert!(KERN_STACK_SIZE >= 1024 && KERN_STACK_SIZE <= 65_536,
-    "OS_CFG_KERN_STACK_SIZE must be 1024..=65536");
-const _: () = assert!(MAX_MUTEX_NEST >= 1 && MAX_MUTEX_NEST <= 32,
-    "OS_CFG_MAX_MUTEX_NEST must be 1..=32");
-const _: () = assert!(HEALTH_CHECK_INTERVAL_MS >= 10 && HEALTH_CHECK_INTERVAL_MS <= 60_000,
-    "OS_CFG_HEALTH_CHECK_INTERVAL must be 10..=60000");
-const _: () = assert!(WDT_TIMEOUT_MS >= 100 && WDT_TIMEOUT_MS <= 30_000,
-    "OS_CFG_WDT_TIMEOUT_MS must be 100..=30000");
-const _: () = assert!(DIAG_REGION_SIZE >= 256 && DIAG_REGION_SIZE <= 65_536,
-    "OS_CFG_DIAG_REGION_SIZE must be 256..=65536");
-const _: () = assert!(MAX_POOLS >= 1 && MAX_POOLS <= 64,
-    "OS_CFG_MAX_POOLS must be 1..=64");
-const _: () = assert!(MIN_DRAM_MB >= 16 && MIN_DRAM_MB <= 16_384,
-    "OS_CFG_MIN_DRAM_MB must be 16..=16384");
+const _: () = assert!(
+    MAX_TASKS >= 1 && MAX_TASKS <= 256,
+    "OS_CFG_MAX_TASKS must be 1..=256"
+);
+const _: () = assert!(
+    TICK_RATE_HZ >= 100 && TICK_RATE_HZ <= 10_000,
+    "OS_CFG_TICK_RATE_HZ must be 100..=10000"
+);
+const _: () = assert!(
+    PRIO_LEVELS == 8 || PRIO_LEVELS == 32 || PRIO_LEVELS == 256,
+    "OS_CFG_PRIO_LEVELS must be 8, 32, or 256"
+);
+const _: () = assert!(
+    TIMESLICE_TICKS >= 1 && TIMESLICE_TICKS <= 1000,
+    "OS_CFG_TIMESLICE_TICKS must be 1..=1000"
+);
+const _: () = assert!(
+    SMP_CORES >= 1 && SMP_CORES <= 4,
+    "OS_CFG_SMP_CORES must be 1..=4"
+);
+const _: () = assert!(
+    USER_STACK_SIZE >= 1024 && USER_STACK_SIZE <= 1_048_576,
+    "OS_CFG_USER_STACK_SIZE must be 1024..=1048576"
+);
+const _: () = assert!(
+    KERN_STACK_SIZE >= 1024 && KERN_STACK_SIZE <= 65_536,
+    "OS_CFG_KERN_STACK_SIZE must be 1024..=65536"
+);
+const _: () = assert!(
+    MAX_MUTEX_NEST >= 1 && MAX_MUTEX_NEST <= 32,
+    "OS_CFG_MAX_MUTEX_NEST must be 1..=32"
+);
+const _: () = assert!(
+    HEALTH_CHECK_INTERVAL_MS >= 10 && HEALTH_CHECK_INTERVAL_MS <= 60_000,
+    "OS_CFG_HEALTH_CHECK_INTERVAL must be 10..=60000"
+);
+const _: () = assert!(
+    WDT_TIMEOUT_MS >= 100 && WDT_TIMEOUT_MS <= 30_000,
+    "OS_CFG_WDT_TIMEOUT_MS must be 100..=30000"
+);
+const _: () = assert!(
+    DIAG_REGION_SIZE >= 256 && DIAG_REGION_SIZE <= 65_536,
+    "OS_CFG_DIAG_REGION_SIZE must be 256..=65536"
+);
+const _: () = assert!(
+    MAX_POOLS >= 1 && MAX_POOLS <= 64,
+    "OS_CFG_MAX_POOLS must be 1..=64"
+);
+const _: () = assert!(
+    MIN_DRAM_MB >= 16 && MIN_DRAM_MB <= 16_384,
+    "OS_CFG_MIN_DRAM_MB must be 16..=16384"
+);
 
 // Safety-critical mode enforcement: budget monitoring must be enabled.
-const _: () = assert!(!SAFETY_CRITICAL || BUDGET_EN,
-    "OS_CFG_SAFETY_CRITICAL requires BUDGET_EN = true");
+const _: () = assert!(
+    !SAFETY_CRITICAL || BUDGET_EN,
+    "OS_CFG_SAFETY_CRITICAL requires BUDGET_EN = true"
+);

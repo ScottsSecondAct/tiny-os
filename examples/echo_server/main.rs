@@ -58,19 +58,27 @@ fn syscall(nr: u64, a0: u64, a1: u64) -> u64 {
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_yield() { syscall(SYS_YIELD, 0, 0); }
+fn sys_yield() {
+    syscall(SYS_YIELD, 0, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall(SYS_DELAY, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall(SYS_DELAY, ms as u64, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall(SYS_WRITE, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall(SYS_WRITE, ptr as u64, len as u64);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_uptime() -> u64 { syscall(SYS_UPTIME, 0, 0) }
+fn sys_uptime() -> u64 {
+    syscall(SYS_UPTIME, 0, 0)
+}
 
 // NET syscall wrappers
 
@@ -171,7 +179,9 @@ fn wstatic(buf: *mut u8, pos: usize, src: *const u8, len: usize) -> usize {
 #[inline(always)]
 fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     if val == 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'0'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'0');
+        }
         return pos + 1;
     }
     let mut tmp = [0u8; 20];
@@ -179,7 +189,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     let mut n: usize = 0;
     let mut v = val;
     while v > 0 {
-        unsafe { core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8)); }
+        unsafe {
+            core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8));
+        }
         v /= 10;
         n = n.wrapping_add(1);
     }
@@ -208,12 +220,16 @@ pub fn echo_server_main(_arg: usize) -> ! {
 
     if sock_fd == E_PERM {
         sys_write_raw(MSG_PERM.as_ptr(), MSG_PERM.len());
-        loop { sys_yield(); }
+        loop {
+            sys_yield();
+        }
     }
 
     if sock_fd >= E_NOSYS - 10 {
         sys_write_raw(MSG_SOCK_FAIL.as_ptr(), MSG_SOCK_FAIL.len());
-        loop { sys_yield(); }
+        loop {
+            sys_yield();
+        }
     }
 
     sys_write_raw(MSG_SOCK_OK.as_ptr(), MSG_SOCK_OK.len());
@@ -224,7 +240,9 @@ pub fn echo_server_main(_arg: usize) -> ! {
     if bind_ret != 0 {
         sys_write_raw(MSG_BIND_FAIL.as_ptr(), MSG_BIND_FAIL.len());
         sys_net_close(sock_fd);
-        loop { sys_yield(); }
+        loop {
+            sys_yield();
+        }
     }
 
     sys_write_raw(MSG_BIND_OK.as_ptr(), MSG_BIND_OK.len());

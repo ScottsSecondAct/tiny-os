@@ -67,11 +67,15 @@ fn syscall(nr: u64, a0: u64, a1: u64) -> u64 {
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall(SYS_DELAY, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall(SYS_DELAY, ms as u64, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall(SYS_WRITE, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall(SYS_WRITE, ptr as u64, len as u64);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]

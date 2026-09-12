@@ -268,8 +268,7 @@ pub fn readdir_next(
     }
 
     loop {
-        let lba = state.cluster_to_lba(cursor.cluster)
-            + cursor.sector_in_cluster as u64;
+        let lba = state.cluster_to_lba(cursor.cluster) + cursor.sector_in_cluster as u64;
 
         let mut sector_buf = [0u8; 512];
         storage::cached_read(lba, &mut sector_buf)?;
@@ -383,8 +382,8 @@ fn lfn_checksum_matches(cursor: &DirCursor, short_name: &[u8]) -> bool {
         return false;
     }
     let mut sum: u8 = 0;
-    for i in 0..11 {
-        sum = ((sum >> 1) | (sum << 7)).wrapping_add(short_name[i]);
+    for byte in short_name.iter().take(11) {
+        sum = sum.rotate_right(1).wrapping_add(*byte);
     }
     sum == cursor.lfn_checksum
 }
@@ -393,9 +392,9 @@ fn short_name_to_str(raw: &[u8], out: &mut [u8]) -> usize {
     let mut pos = 0;
 
     // Base name (bytes 0..8), trimmed trailing spaces, lowercased
-    for i in 0..8 {
-        if raw[i] != b' ' {
-            out[pos] = to_lower(raw[i]);
+    for &byte in raw.iter().take(8) {
+        if byte != b' ' {
+            out[pos] = to_lower(byte);
             pos += 1;
         }
     }
@@ -403,14 +402,14 @@ fn short_name_to_str(raw: &[u8], out: &mut [u8]) -> usize {
     // Extension (bytes 8..11)
     let ext_start = 8;
     let mut has_ext = false;
-    for i in ext_start..11 {
-        if raw[i] != b' ' {
+    for &byte in raw.iter().take(11).skip(ext_start) {
+        if byte != b' ' {
             if !has_ext {
                 out[pos] = b'.';
                 pos += 1;
                 has_ext = true;
             }
-            out[pos] = to_lower(raw[i]);
+            out[pos] = to_lower(byte);
             pos += 1;
         }
     }
@@ -428,10 +427,7 @@ fn to_lower(b: u8) -> u8 {
 
 // --- Path resolution ---
 
-pub fn resolve_path(
-    state: &Fat32State,
-    path: &str,
-) -> Result<(u32, u32, bool, u32, u16), FsError> {
+pub fn resolve_path(state: &Fat32State, path: &str) -> Result<(u32, u32, bool, u32, u16), FsError> {
     // Returns (cluster, size, is_dir, parent_cluster, dir_entry_index)
     let path = path.trim_start_matches('/');
     if path.is_empty() {
@@ -448,7 +444,7 @@ pub fn resolve_path(
     let mut last_cluster = current_cluster;
 
     for component in components {
-        if !last_is_dir && component.len() > 0 {
+        if !last_is_dir && !component.is_empty() {
             return Err(FsError::NotADirectory);
         }
 
@@ -475,7 +471,13 @@ pub fn resolve_path(
         }
     }
 
-    Ok((last_cluster, last_size, last_is_dir, parent_cluster, entry_idx))
+    Ok((
+        last_cluster,
+        last_size,
+        last_is_dir,
+        parent_cluster,
+        entry_idx,
+    ))
 }
 
 fn name_eq(a: &str, b: &str) -> bool {
@@ -575,13 +577,12 @@ pub fn read_file(
     // Seek to the right cluster for current position
     let target_cluster_idx = file.position / bytes_per_cluster;
 
-    let (mut cluster, mut cluster_idx) = if file.cur_cluster != 0
-        && file.cur_cluster_offset <= target_cluster_idx
-    {
-        (file.cur_cluster, file.cur_cluster_offset)
-    } else {
-        (file.cluster_start, 0)
-    };
+    let (mut cluster, mut cluster_idx) =
+        if file.cur_cluster != 0 && file.cur_cluster_offset <= target_cluster_idx {
+            (file.cur_cluster, file.cur_cluster_offset)
+        } else {
+            (file.cluster_start, 0)
+        };
 
     while cluster_idx < target_cluster_idx {
         match next_cluster(state, cluster)? {
@@ -631,11 +632,7 @@ pub fn read_file(
 
 // --- File write ---
 
-pub fn write_file(
-    state: &Fat32State,
-    file: &mut OpenFile,
-    buf: &[u8],
-) -> Result<usize, FsError> {
+pub fn write_file(state: &Fat32State, file: &mut OpenFile, buf: &[u8]) -> Result<usize, FsError> {
     if !file.writable {
         return Err(FsError::ReadOnly);
     }
@@ -653,13 +650,12 @@ pub fn write_file(
 
     let target_cluster_idx = file.position / bytes_per_cluster;
 
-    let (mut cluster, mut cluster_idx) = if file.cur_cluster != 0
-        && file.cur_cluster_offset <= target_cluster_idx
-    {
-        (file.cur_cluster, file.cur_cluster_offset)
-    } else {
-        (file.cluster_start, 0)
-    };
+    let (mut cluster, mut cluster_idx) =
+        if file.cur_cluster != 0 && file.cur_cluster_offset <= target_cluster_idx {
+            (file.cur_cluster, file.cur_cluster_offset)
+        } else {
+            (file.cluster_start, 0)
+        };
 
     // Walk to target cluster, allocating as needed
     while cluster_idx < target_cluster_idx {
@@ -758,7 +754,7 @@ pub fn create_file(
                     // Write directory entry
                     buf[off..off + 11].copy_from_slice(&short);
                     buf[off + 11] = 0x20; // ATTR_ARCHIVE
-                    // Zero reserved/time/date fields
+                                          // Zero reserved/time/date fields
                     for b in &mut buf[off + 12..off + 20] {
                         *b = 0;
                     }
@@ -801,8 +797,7 @@ pub fn update_dir_entry_size(
     new_size: u32,
     new_cluster: u32,
 ) -> Result<(), FsError> {
-    let entries_per_cluster =
-        state.bpb.sectors_per_cluster as u16 * ENTRIES_PER_SECTOR as u16;
+    let entries_per_cluster = state.bpb.sectors_per_cluster as u16 * ENTRIES_PER_SECTOR as u16;
     let cluster_offset = entry_idx / entries_per_cluster;
     let local_idx = (entry_idx % entries_per_cluster) as usize;
 

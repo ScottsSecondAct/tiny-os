@@ -3,11 +3,11 @@
 // On RPi5, these use the RP1 southbridge drivers. On QEMU (no RP1),
 // all operations return errors.
 
-use arch::spi::{SpiConfig, SpiDevice, SpiError};
-use arch::i2c::{I2cConfig, I2cDevice, I2cError};
 use arch::gpio::{GpioController, GpioError, PinMode, PullMode};
+use arch::i2c::{I2cConfig, I2cDevice, I2cError};
 use arch::pwm::{PwmConfig, PwmDevice, PwmError};
-use arch::serial::{SerialConfig, SerialPort, SerialError};
+use arch::serial::{SerialConfig, SerialError, SerialPort};
+use arch::spi::{SpiConfig, SpiDevice, SpiError};
 use core::cell::UnsafeCell;
 
 // --- SPI ---
@@ -54,9 +54,14 @@ pub fn spi_transfer(tx: &[u8], rx: &mut [u8]) -> Result<usize, SpiError> {
         return Err(SpiError::BusNotAvailable);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.transfer(tx, rx) }
+    {
+        s.driver.transfer(tx, rx)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (tx, rx); Err(SpiError::BusNotAvailable) }
+    {
+        let _ = (tx, rx);
+        Err(SpiError::BusNotAvailable)
+    }
 }
 
 pub fn spi_write(data: &[u8]) -> Result<usize, SpiError> {
@@ -65,9 +70,14 @@ pub fn spi_write(data: &[u8]) -> Result<usize, SpiError> {
         return Err(SpiError::BusNotAvailable);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.write(data) }
+    {
+        s.driver.write(data)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = data; Err(SpiError::BusNotAvailable) }
+    {
+        let _ = data;
+        Err(SpiError::BusNotAvailable)
+    }
 }
 
 pub fn spi_read(buf: &mut [u8]) -> Result<usize, SpiError> {
@@ -76,9 +86,14 @@ pub fn spi_read(buf: &mut [u8]) -> Result<usize, SpiError> {
         return Err(SpiError::BusNotAvailable);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.read(buf) }
+    {
+        s.driver.read(buf)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = buf; Err(SpiError::BusNotAvailable) }
+    {
+        let _ = buf;
+        Err(SpiError::BusNotAvailable)
+    }
 }
 
 // --- I2C ---
@@ -123,9 +138,14 @@ pub fn i2c_write(addr: u8, data: &[u8]) -> Result<usize, I2cError> {
         return Err(I2cError::BusNotAvailable);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.write(addr, data) }
+    {
+        s.driver.write(addr, data)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (addr, data); Err(I2cError::BusNotAvailable) }
+    {
+        let _ = (addr, data);
+        Err(I2cError::BusNotAvailable)
+    }
 }
 
 pub fn i2c_read(addr: u8, buf: &mut [u8]) -> Result<usize, I2cError> {
@@ -134,9 +154,14 @@ pub fn i2c_read(addr: u8, buf: &mut [u8]) -> Result<usize, I2cError> {
         return Err(I2cError::BusNotAvailable);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.read(addr, buf) }
+    {
+        s.driver.read(addr, buf)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (addr, buf); Err(I2cError::BusNotAvailable) }
+    {
+        let _ = (addr, buf);
+        Err(I2cError::BusNotAvailable)
+    }
 }
 
 pub fn i2c_write_read(addr: u8, tx: &[u8], rx: &mut [u8]) -> Result<usize, I2cError> {
@@ -145,9 +170,14 @@ pub fn i2c_write_read(addr: u8, tx: &[u8], rx: &mut [u8]) -> Result<usize, I2cEr
         return Err(I2cError::BusNotAvailable);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.write_read(addr, tx, rx) }
+    {
+        s.driver.write_read(addr, tx, rx)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (addr, tx, rx); Err(I2cError::BusNotAvailable) }
+    {
+        let _ = (addr, tx, rx);
+        Err(I2cError::BusNotAvailable)
+    }
 }
 
 // --- GPIO ---
@@ -175,30 +205,50 @@ fn gpio_state() -> &'static mut GpioState {
 
 pub fn gpio_set_mode(pin: u8, mode: PinMode) -> Result<(), GpioError> {
     #[cfg(feature = "bsp-rpi5")]
-    { gpio_state().driver.set_mode(pin, mode) }
+    {
+        gpio_state().driver.set_mode(pin, mode)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (pin, mode); Err(GpioError::NotConfigured) }
+    {
+        let _ = (pin, mode);
+        Err(GpioError::NotConfigured)
+    }
 }
 
 pub fn gpio_set_pull(pin: u8, pull: PullMode) -> Result<(), GpioError> {
     #[cfg(feature = "bsp-rpi5")]
-    { gpio_state().driver.set_pull(pin, pull) }
+    {
+        gpio_state().driver.set_pull(pin, pull)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (pin, pull); Err(GpioError::NotConfigured) }
+    {
+        let _ = (pin, pull);
+        Err(GpioError::NotConfigured)
+    }
 }
 
 pub fn gpio_read(pin: u8) -> Result<bool, GpioError> {
     #[cfg(feature = "bsp-rpi5")]
-    { gpio_state().driver.read(pin) }
+    {
+        gpio_state().driver.read(pin)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = pin; Err(GpioError::NotConfigured) }
+    {
+        let _ = pin;
+        Err(GpioError::NotConfigured)
+    }
 }
 
 pub fn gpio_write(pin: u8, high: bool) -> Result<(), GpioError> {
     #[cfg(feature = "bsp-rpi5")]
-    { gpio_state().driver.write(pin, high) }
+    {
+        gpio_state().driver.write(pin, high)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (pin, high); Err(GpioError::NotConfigured) }
+    {
+        let _ = (pin, high);
+        Err(GpioError::NotConfigured)
+    }
 }
 
 // --- PWM ---
@@ -244,9 +294,14 @@ pub fn pwm_set_duty(channel: u8, duty: u8) -> Result<(), PwmError> {
         return Err(PwmError::NotEnabled);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.set_duty(channel, duty) }
+    {
+        s.driver.set_duty(channel, duty)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (channel, duty); Err(PwmError::HardwareNotAvailable) }
+    {
+        let _ = (channel, duty);
+        Err(PwmError::HardwareNotAvailable)
+    }
 }
 
 pub fn pwm_enable(channel: u8) -> Result<(), PwmError> {
@@ -255,9 +310,14 @@ pub fn pwm_enable(channel: u8) -> Result<(), PwmError> {
         return Err(PwmError::NotEnabled);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.enable(channel) }
+    {
+        s.driver.enable(channel)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = channel; Err(PwmError::HardwareNotAvailable) }
+    {
+        let _ = channel;
+        Err(PwmError::HardwareNotAvailable)
+    }
 }
 
 pub fn pwm_disable(channel: u8) -> Result<(), PwmError> {
@@ -266,9 +326,14 @@ pub fn pwm_disable(channel: u8) -> Result<(), PwmError> {
         return Err(PwmError::NotEnabled);
     }
     #[cfg(feature = "bsp-rpi5")]
-    { s.driver.disable(channel) }
+    {
+        s.driver.disable(channel)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = channel; Err(PwmError::HardwareNotAvailable) }
+    {
+        let _ = channel;
+        Err(PwmError::HardwareNotAvailable)
+    }
 }
 
 // --- Serial ---
@@ -297,28 +362,48 @@ fn serial_state() -> &'static mut SerialState {
 
 pub fn serial_open(config: &SerialConfig) -> Result<(), SerialError> {
     #[cfg(feature = "bsp-rpi5")]
-    { serial_state().driver.open(config) }
+    {
+        serial_state().driver.open(config)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = config; Err(SerialError::PortNotAvailable) }
+    {
+        let _ = config;
+        Err(SerialError::PortNotAvailable)
+    }
 }
 
 pub fn serial_write(port: u8, data: &[u8]) -> Result<usize, SerialError> {
     #[cfg(feature = "bsp-rpi5")]
-    { serial_state().driver.write(port, data) }
+    {
+        serial_state().driver.write(port, data)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (port, data); Err(SerialError::PortNotAvailable) }
+    {
+        let _ = (port, data);
+        Err(SerialError::PortNotAvailable)
+    }
 }
 
 pub fn serial_read(port: u8, buf: &mut [u8]) -> Result<usize, SerialError> {
     #[cfg(feature = "bsp-rpi5")]
-    { serial_state().driver.read(port, buf) }
+    {
+        serial_state().driver.read(port, buf)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = (port, buf); Err(SerialError::PortNotAvailable) }
+    {
+        let _ = (port, buf);
+        Err(SerialError::PortNotAvailable)
+    }
 }
 
 pub fn serial_close(port: u8) -> Result<(), SerialError> {
     #[cfg(feature = "bsp-rpi5")]
-    { serial_state().driver.close(port) }
+    {
+        serial_state().driver.close(port)
+    }
     #[cfg(not(feature = "bsp-rpi5"))]
-    { let _ = port; Err(SerialError::PortNotAvailable) }
+    {
+        let _ = port;
+        Err(SerialError::PortNotAvailable)
+    }
 }

@@ -4,9 +4,9 @@
 //! dependencies — checksums, header parsing, data structure operations.
 //! Run with: cargo test -p host-tests
 
-mod ipv4;
-mod ethernet;
-mod mbr;
-mod sha256;
 mod crc32;
+mod ethernet;
+mod ipv4;
+mod mbr;
 mod rtc;
+mod sha256;

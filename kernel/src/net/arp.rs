@@ -1,6 +1,6 @@
+use super::{ethernet, Ipv4Addr};
 use crate::netbuf;
 use crate::os_cfg;
-use super::{ethernet, Ipv4Addr};
 use core::cell::UnsafeCell;
 
 const ARP_HTYPE_ETH: u16 = 1;
@@ -56,10 +56,18 @@ pub fn insert(ip: Ipv4Addr, mac: [u8; 6]) {
         }
     }
     if c.count < MAX_ARP_ENTRIES {
-        c.entries[c.count] = ArpEntry { ip, mac, valid: true };
+        c.entries[c.count] = ArpEntry {
+            ip,
+            mac,
+            valid: true,
+        };
         c.count += 1;
     } else {
-        c.entries[0] = ArpEntry { ip, mac, valid: true };
+        c.entries[0] = ArpEntry {
+            ip,
+            mac,
+            valid: true,
+        };
     }
 }
 

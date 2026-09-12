@@ -1,6 +1,6 @@
-use core::cell::UnsafeCell;
 use crate::os_cfg;
 use crate::sched::CriticalSection;
+use core::cell::UnsafeCell;
 
 pub trait Driver: Sync {
     fn name(&self) -> &'static str;

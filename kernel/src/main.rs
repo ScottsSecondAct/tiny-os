@@ -1,74 +1,92 @@
 #![no_std]
 #![no_main]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::result_unit_err)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::single_match)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::needless_bool)]
+#![allow(clippy::manual_swap)]
+#![allow(clippy::manual_rotate)]
+#![allow(clippy::manual_strip)]
+#![allow(clippy::manual_find)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::manual_div_ceil)]
+#![allow(clippy::manual_is_multiple_of)]
 
+pub mod os_cfg;
 mod panic;
 pub mod print;
-pub mod os_cfg;
 
+pub mod audit;
 pub mod criticality;
-mod drivers;
-mod exceptions;
-pub mod fault_inject;
-mod health;
-pub mod hooks;
-pub mod shutdown;
-pub mod klog;
-mod mm;
-pub mod netbuf;
-pub mod sched;
-pub mod sched_analysis;
-#[path = "../../examples/temp_monitor/main.rs"]
-mod temp_monitor;
-#[path = "../../examples/sensor_gateway/main.rs"]
-mod sensor_gateway;
-#[path = "../../examples/system_dashboard/main.rs"]
-mod system_dashboard;
-#[path = "../../examples/data_logger/main.rs"]
-mod data_logger;
-#[path = "../../examples/echo_server/main.rs"]
-mod echo_server;
-#[path = "../../examples/led_blinker/main.rs"]
-mod led_blinker;
-#[path = "../../examples/rate_limit_demo/main.rs"]
-mod rate_limit_demo;
-#[path = "../../examples/plc_motion/main.rs"]
-mod plc_motion;
-#[path = "../../examples/machine_vision/main.rs"]
-mod machine_vision;
+pub mod crypto;
 #[path = "../../examples/crypto_signer/main.rs"]
 mod crypto_signer;
+#[path = "../../examples/data_logger/main.rs"]
+mod data_logger;
+mod drivers;
+#[path = "../../examples/echo_server/main.rs"]
+mod echo_server;
+mod exceptions;
+pub mod fault_inject;
+pub mod fs;
+mod health;
+pub mod hooks;
+pub mod integrity;
+pub mod jtag;
+pub mod klog;
+#[path = "../../examples/led_blinker/main.rs"]
+mod led_blinker;
+#[cfg(feature = "dynamic-load")]
+pub mod loader;
+#[path = "../../examples/machine_vision/main.rs"]
+mod machine_vision;
+mod mm;
+pub mod net;
+pub mod netbuf;
+pub mod pac;
+pub mod periph;
+#[path = "../../examples/plc_motion/main.rs"]
+mod plc_motion;
+pub mod power;
 #[path = "../../examples/power_monitor/main.rs"]
 mod power_monitor;
+#[path = "../../examples/rate_limit_demo/main.rs"]
+mod rate_limit_demo;
+pub mod rtc;
 #[path = "../../examples/rtc_clock/main.rs"]
 mod rtc_clock;
+pub mod sched;
+pub mod sched_analysis;
+#[path = "../../examples/sensor_gateway/main.rs"]
+mod sensor_gateway;
 mod shell;
-pub mod periph;
-pub mod syscall;
+pub mod shutdown;
 pub mod spinlock;
-pub mod fs;
-pub mod net;
 pub mod storage;
 pub mod sync;
+pub mod syscall;
+#[path = "../../examples/system_dashboard/main.rs"]
+mod system_dashboard;
+#[path = "../../examples/temp_monitor/main.rs"]
+mod temp_monitor;
 mod user_tasks;
 pub mod watchdog;
 pub mod wcet;
-pub mod crypto;
-pub mod integrity;
-pub mod audit;
-pub mod jtag;
-pub mod pac;
-pub mod power;
-pub mod rtc;
-#[cfg(feature = "dynamic-load")]
-pub mod loader;
 
-use arch::aarch64::{emmc2, exceptions as exc, gic, mailbox, mmu, timer, smp};
+use arch::aarch64::{emmc2, exceptions as exc, gic, mailbox, mmu, smp, timer};
 use arch::uart::UartDriver;
 use bsp::PlatformUart;
+use core::sync::atomic::{AtomicU8, Ordering};
 use sched::Criticality;
 use sync::mutex::{Mutex, MutexProtocol};
 use sync::semaphore::Semaphore;
-use core::sync::atomic::{AtomicU8, Ordering};
 
 const NUM_SECONDARY_CORES: usize = 3;
 
@@ -292,7 +310,11 @@ pub extern "C" fn kmain() -> ! {
     kprintln!("audit: 64-entry ring buffer");
 
     // Initialize klog subsystem.
-    kprintln!("klog: {}-entry ring buffer, level={}", os_cfg::LOG_BUFFER_SIZE, klog::get_level().as_str());
+    kprintln!(
+        "klog: {}-entry ring buffer, level={}",
+        os_cfg::LOG_BUFFER_SIZE,
+        klog::get_level().as_str()
+    );
 
     // Initialize watchdog.
     watchdog::init(WATCHDOG_TIMEOUT_MS);
@@ -303,8 +325,15 @@ pub extern "C" fn kmain() -> ! {
 
     // Create the shell task at priority 10.
     let shell_stack = unsafe { &mut SHELL_STACK.0[..] };
-    sched::task_create("shell", 10, Criticality::Standard, shell_stack, shell_task, 0)
-        .expect("failed to create shell task");
+    sched::task_create(
+        "shell",
+        10,
+        Criticality::Standard,
+        shell_stack,
+        shell_task,
+        0,
+    )
+    .expect("failed to create shell task");
 
     // Create demo tasks.
     let demo_a = unsafe { &mut DEMO_STACK_A.0[..] };
@@ -317,13 +346,27 @@ pub extern "C" fn kmain() -> ! {
 
     // Create watchdog kick task at highest priority.
     let wdog_stack = unsafe { &mut WATCHDOG_STACK.0[..] };
-    sched::task_create("wdog-kick", 0, Criticality::SafetyCritical, wdog_stack, watchdog_kick_task, 0)
-        .expect("failed to create watchdog kick task");
+    sched::task_create(
+        "wdog-kick",
+        0,
+        Criticality::SafetyCritical,
+        wdog_stack,
+        watchdog_kick_task,
+        0,
+    )
+    .expect("failed to create watchdog kick task");
 
     // Create health monitor task.
     let health_stack = unsafe { &mut HEALTH_STACK.0[..] };
-    sched::task_create("health-mon", 1, Criticality::MissionCritical, health_stack, health::health_task, 0)
-        .expect("failed to create health monitor task");
+    sched::task_create(
+        "health-mon",
+        1,
+        Criticality::MissionCritical,
+        health_stack,
+        health::health_task,
+        0,
+    )
+    .expect("failed to create health monitor task");
 
     // Create network task.
     let net_stack = unsafe { &mut NET_STACK.0[..] };
@@ -335,8 +378,8 @@ pub extern "C" fn kmain() -> ! {
         static __user_text_start: u8;
         static __user_text_end: u8;
     }
-    let code_base = unsafe { &raw const __user_text_start as usize };
-    let code_size = unsafe { &raw const __user_text_end as usize - code_base };
+    let code_base = &raw const __user_text_start as usize;
+    let code_size = &raw const __user_text_end as usize - code_base;
     let user_stack_pages = 16384 / 4096;
 
     // Create EL0 user demo task.
@@ -350,9 +393,16 @@ pub extern "C" fn kmain() -> ! {
 
     let user_kernel_stack = unsafe { &mut USER_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "user-demo", 100, Criticality::Standard,
-        user_kernel_stack, user_entry, user_stack_top, 0, ttbr0,
-    ).expect("failed to create user demo task");
+        "user-demo",
+        100,
+        Criticality::Standard,
+        user_kernel_stack,
+        user_entry,
+        user_stack_top,
+        0,
+        ttbr0,
+    )
+    .expect("failed to create user demo task");
 
     // Create EL0 temperature monitor task (examples/temp_monitor.rs).
     let temp_entry = temp_monitor::temp_monitor_main as *const () as usize;
@@ -365,9 +415,16 @@ pub extern "C" fn kmain() -> ! {
 
     let temp_kernel_stack = unsafe { &mut TEMP_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "temp-mon", 100, Criticality::Standard,
-        temp_kernel_stack, temp_entry, temp_stack_top, 0, temp_ttbr0,
-    ).expect("failed to create temp monitor task");
+        "temp-mon",
+        100,
+        Criticality::Standard,
+        temp_kernel_stack,
+        temp_entry,
+        temp_stack_top,
+        0,
+        temp_ttbr0,
+    )
+    .expect("failed to create temp monitor task");
 
     // Create EL0 sensor gateway task (examples/sensor_gateway.rs).
     let gw_entry = sensor_gateway::sensor_gateway_main as *const () as usize;
@@ -380,9 +437,16 @@ pub extern "C" fn kmain() -> ! {
 
     let gw_kernel_stack = unsafe { &mut GW_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "sensor-gw", 80, Criticality::MissionCritical,
-        gw_kernel_stack, gw_entry, gw_stack_top, 0, gw_ttbr0,
-    ).expect("failed to create sensor gateway task");
+        "sensor-gw",
+        80,
+        Criticality::MissionCritical,
+        gw_kernel_stack,
+        gw_entry,
+        gw_stack_top,
+        0,
+        gw_ttbr0,
+    )
+    .expect("failed to create sensor gateway task");
 
     // Create EL0 system dashboard task (examples/system_dashboard.rs).
     let dash_entry = system_dashboard::system_dashboard_main as *const () as usize;
@@ -393,9 +457,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let dash_kernel_stack = unsafe { &mut DASH_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "dashboard", 150, Criticality::Standard,
-        dash_kernel_stack, dash_entry, dash_stack_top, 0, dash_ttbr0,
-    ).expect("failed to create dashboard task");
+        "dashboard",
+        150,
+        Criticality::Standard,
+        dash_kernel_stack,
+        dash_entry,
+        dash_stack_top,
+        0,
+        dash_ttbr0,
+    )
+    .expect("failed to create dashboard task");
 
     // Create EL0 data logger task (examples/data_logger.rs).
     let dlog_entry = data_logger::data_logger_main as *const () as usize;
@@ -406,9 +477,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let dlog_kernel_stack = unsafe { &mut DLOG_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "data-log", 120, Criticality::Standard,
-        dlog_kernel_stack, dlog_entry, dlog_stack_top, 0, dlog_ttbr0,
-    ).expect("failed to create data logger task");
+        "data-log",
+        120,
+        Criticality::Standard,
+        dlog_kernel_stack,
+        dlog_entry,
+        dlog_stack_top,
+        0,
+        dlog_ttbr0,
+    )
+    .expect("failed to create data logger task");
 
     // Create EL0 echo server task (examples/echo_server.rs).
     let echo_entry = echo_server::echo_server_main as *const () as usize;
@@ -419,9 +497,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let echo_kernel_stack = unsafe { &mut ECHO_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "echo-srv", 110, Criticality::Standard,
-        echo_kernel_stack, echo_entry, echo_stack_top, 0, echo_ttbr0,
-    ).expect("failed to create echo server task");
+        "echo-srv",
+        110,
+        Criticality::Standard,
+        echo_kernel_stack,
+        echo_entry,
+        echo_stack_top,
+        0,
+        echo_ttbr0,
+    )
+    .expect("failed to create echo server task");
 
     // Create EL0 LED blinker task (examples/led_blinker.rs).
     let led_entry = led_blinker::led_blinker_main as *const () as usize;
@@ -432,9 +517,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let led_kernel_stack = unsafe { &mut LED_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "led-blink", 200, Criticality::Standard,
-        led_kernel_stack, led_entry, led_stack_top, 0, led_ttbr0,
-    ).expect("failed to create LED blinker task");
+        "led-blink",
+        200,
+        Criticality::Standard,
+        led_kernel_stack,
+        led_entry,
+        led_stack_top,
+        0,
+        led_ttbr0,
+    )
+    .expect("failed to create LED blinker task");
 
     // Create EL0 rate limit demo task (examples/rate_limit_demo.rs).
     let rlim_entry = rate_limit_demo::rate_limit_demo_main as *const () as usize;
@@ -445,9 +537,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let rlim_kernel_stack = unsafe { &mut RLIM_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "rate-demo", 180, Criticality::Standard,
-        rlim_kernel_stack, rlim_entry, rlim_stack_top, 0, rlim_ttbr0,
-    ).expect("failed to create rate limit demo task");
+        "rate-demo",
+        180,
+        Criticality::Standard,
+        rlim_kernel_stack,
+        rlim_entry,
+        rlim_stack_top,
+        0,
+        rlim_ttbr0,
+    )
+    .expect("failed to create rate limit demo task");
 
     // Create EL0 PLC motion controller task (examples/plc_motion.rs).
     let plc_entry = plc_motion::plc_motion_main as *const () as usize;
@@ -458,9 +557,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let plc_kernel_stack = unsafe { &mut PLC_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "plc-ctrl", 60, Criticality::MissionCritical,
-        plc_kernel_stack, plc_entry, plc_stack_top, 0, plc_ttbr0,
-    ).expect("failed to create PLC motion task");
+        "plc-ctrl",
+        60,
+        Criticality::MissionCritical,
+        plc_kernel_stack,
+        plc_entry,
+        plc_stack_top,
+        0,
+        plc_ttbr0,
+    )
+    .expect("failed to create PLC motion task");
 
     // Create EL0 machine vision inspector task (examples/machine_vision.rs).
     let mv_entry = machine_vision::machine_vision_main as *const () as usize;
@@ -471,9 +577,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let mv_kernel_stack = unsafe { &mut MV_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "vision", 70, Criticality::MissionCritical,
-        mv_kernel_stack, mv_entry, mv_stack_top, 0, mv_ttbr0,
-    ).expect("failed to create machine vision task");
+        "vision",
+        70,
+        Criticality::MissionCritical,
+        mv_kernel_stack,
+        mv_entry,
+        mv_stack_top,
+        0,
+        mv_ttbr0,
+    )
+    .expect("failed to create machine vision task");
 
     // Create EL0 crypto signer task (examples/crypto_signer.rs).
     let crypto_entry = crypto_signer::crypto_signer_main as *const () as usize;
@@ -484,9 +597,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let crypto_kernel_stack = unsafe { &mut CRYPTO_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "crypto-sig", 130, Criticality::Standard,
-        crypto_kernel_stack, crypto_entry, crypto_stack_top, 0, crypto_ttbr0,
-    ).expect("failed to create crypto signer task");
+        "crypto-sig",
+        130,
+        Criticality::Standard,
+        crypto_kernel_stack,
+        crypto_entry,
+        crypto_stack_top,
+        0,
+        crypto_ttbr0,
+    )
+    .expect("failed to create crypto signer task");
 
     // Create EL0 power monitor task (examples/power_monitor.rs).
     let pwrmon_entry = power_monitor::power_monitor_main as *const () as usize;
@@ -497,9 +617,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let pwrmon_kernel_stack = unsafe { &mut PWRMON_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "pwr-mon", 140, Criticality::Standard,
-        pwrmon_kernel_stack, pwrmon_entry, pwrmon_stack_top, 0, pwrmon_ttbr0,
-    ).expect("failed to create power monitor task");
+        "pwr-mon",
+        140,
+        Criticality::Standard,
+        pwrmon_kernel_stack,
+        pwrmon_entry,
+        pwrmon_stack_top,
+        0,
+        pwrmon_ttbr0,
+    )
+    .expect("failed to create power monitor task");
 
     // Create EL0 RTC clock task (examples/rtc_clock.rs).
     let rtcclk_entry = rtc_clock::rtc_clock_main as *const () as usize;
@@ -510,9 +637,16 @@ pub extern "C" fn kmain() -> ! {
     };
     let rtcclk_kernel_stack = unsafe { &mut RTCCLK_KERNEL_STACK.0[..] };
     sched::task_create_user(
-        "rtc-clock", 160, Criticality::Standard,
-        rtcclk_kernel_stack, rtcclk_entry, rtcclk_stack_top, 0, rtcclk_ttbr0,
-    ).expect("failed to create RTC clock task");
+        "rtc-clock",
+        160,
+        Criticality::Standard,
+        rtcclk_kernel_stack,
+        rtcclk_entry,
+        rtcclk_stack_top,
+        0,
+        rtcclk_ttbr0,
+    )
+    .expect("failed to create RTC clock task");
 
     kprintln!("sched: {} tasks created on core 0", sched::task_count());
 
@@ -526,14 +660,17 @@ pub extern "C" fn kmain() -> ! {
     let smp_deadline = timer::read_counter() + timer::frequency() * 3;
     while CORES_ONLINE.load(Ordering::Acquire) < (NUM_SECONDARY_CORES + 1) as u8 {
         if timer::read_counter() > smp_deadline {
-            kprintln!("smp: timeout ({} of {} cores)",
-                CORES_ONLINE.load(Ordering::Relaxed), NUM_SECONDARY_CORES + 1);
+            kprintln!(
+                "smp: timeout ({} of {} cores)",
+                CORES_ONLINE.load(Ordering::Relaxed),
+                NUM_SECONDARY_CORES + 1
+            );
             break;
         }
         core::hint::spin_loop();
     }
     let online = CORES_ONLINE.load(Ordering::Relaxed) as usize;
-    if online >= NUM_SECONDARY_CORES + 1 {
+    if online > NUM_SECONDARY_CORES {
         kprintln!("smp: all {} cores online", online);
     }
 

@@ -1,5 +1,5 @@
-use arch::block::{BlockDevice, BlockError};
 use crate::os_cfg;
+use arch::block::{BlockDevice, BlockError};
 
 const CACHE_LINES: usize = os_cfg::CACHE_LINES;
 const BLOCK_SIZE: usize = 512;
@@ -43,23 +43,20 @@ impl BlockCache {
     }
 
     fn find_line(&self, lba: u64) -> Option<usize> {
-        for i in 0..CACHE_LINES {
-            if self.lines[i].valid && self.lines[i].lba == lba {
-                return Some(i);
-            }
-        }
-        None
+        self.lines[..CACHE_LINES]
+            .iter()
+            .position(|line| line.valid && line.lba == lba)
     }
 
     fn find_lru(&self) -> usize {
         let mut lru_idx = 0;
         let mut lru_time = u64::MAX;
-        for i in 0..CACHE_LINES {
-            if !self.lines[i].valid {
+        for (i, line) in self.lines.iter().enumerate().take(CACHE_LINES) {
+            if !line.valid {
                 return i;
             }
-            if self.lines[i].last_used < lru_time {
-                lru_time = self.lines[i].last_used;
+            if line.last_used < lru_time {
+                lru_time = line.last_used;
                 lru_idx = i;
             }
         }
@@ -133,10 +130,10 @@ impl BlockCache {
     }
 
     pub fn flush(&mut self, dev: &mut dyn BlockDevice) -> Result<(), BlockError> {
-        for i in 0..CACHE_LINES {
-            if self.lines[i].valid && self.lines[i].dirty {
-                dev.write_block(self.lines[i].lba, &self.lines[i].data)?;
-                self.lines[i].dirty = false;
+        for line in self.lines.iter_mut().take(CACHE_LINES) {
+            if line.valid && line.dirty {
+                dev.write_block(line.lba, &line.data)?;
+                line.dirty = false;
             }
         }
         Ok(())

@@ -1,5 +1,5 @@
-use crate::netbuf;
 use super::{ethernet, ipv4, Ipv4Addr};
+use crate::netbuf;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
 const ICMP_ECHO_REQUEST: u8 = 8;
@@ -101,8 +101,8 @@ pub fn send_ping(dst: Ipv4Addr) -> u16 {
     let id: u16 = 0x4F53; // "OS"
     icmp[4..6].copy_from_slice(&id.to_be_bytes());
     icmp[6..8].copy_from_slice(&seq.to_be_bytes());
-    for i in 8..64 {
-        icmp[i] = i as u8;
+    for (i, slot) in icmp.iter_mut().enumerate().skip(8) {
+        *slot = i as u8;
     }
     icmp[2] = 0;
     icmp[3] = 0;

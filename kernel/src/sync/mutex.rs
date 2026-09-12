@@ -1,7 +1,7 @@
-use core::cell::UnsafeCell;
+use super::WaitQueue;
 use crate::os_cfg;
 use crate::sched::{self, CriticalSection, WaitResult};
-use super::WaitQueue;
+use core::cell::UnsafeCell;
 
 const NONE: u8 = 0xFF;
 const MAX_NEST: u8 = os_cfg::MAX_MUTEX_NEST;
@@ -41,6 +41,7 @@ impl Mutex {
         }
     }
 
+    #[allow(clippy::mut_from_ref)]
     fn inner(&self) -> &mut MutexInner {
         // SAFETY: Caller holds CriticalSection.
         unsafe { &mut *self.inner.get() }
@@ -214,6 +215,10 @@ impl Mutex {
     pub fn owner(&self) -> Option<u8> {
         let _cs = CriticalSection::enter();
         let m = self.inner();
-        if m.owner == NONE { None } else { Some(m.owner) }
+        if m.owner == NONE {
+            None
+        } else {
+            Some(m.owner)
+        }
     }
 }

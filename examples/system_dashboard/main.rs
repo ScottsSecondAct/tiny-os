@@ -26,19 +26,29 @@ fn syscall(nr: u64, a0: u64, a1: u64) -> u64 {
 }
 
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall(1, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall(1, ms as u64, 0);
+}
 
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall(2, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall(2, ptr as u64, len as u64);
+}
 
 #[inline(always)]
-fn sys_task_id() -> u64 { syscall(3, 0, 0) }
+fn sys_task_id() -> u64 {
+    syscall(3, 0, 0)
+}
 
 #[inline(always)]
-fn sys_uptime() -> u64 { syscall(4, 0, 0) }
+fn sys_uptime() -> u64 {
+    syscall(4, 0, 0)
+}
 
 #[inline(always)]
-fn sys_temperature() -> i32 { syscall(6, 0, 0) as i32 }
+fn sys_temperature() -> i32 {
+    syscall(6, 0, 0) as i32
+}
 
 // ── String constants (must live in .user.text for EL0 access) ──────────────
 
@@ -98,7 +108,9 @@ fn wstatic(buf: *mut u8, pos: usize, src: *const u8, len: usize) -> usize {
 #[inline(always)]
 fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     if val == 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'0'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'0');
+        }
         return pos + 1;
     }
     let mut tmp = [0u8; 20];
@@ -106,7 +118,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     let mut n: usize = 0;
     let mut v = val;
     while v > 0 {
-        unsafe { core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8)); }
+        unsafe {
+            core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8));
+        }
         v /= 10;
         n = n.wrapping_add(1);
     }
@@ -129,7 +143,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
 fn wtemp(buf: *mut u8, pos: usize, mc: i32) -> usize {
     let mut p = pos;
     let (whole, frac) = if mc < 0 {
-        unsafe { core::ptr::write_volatile(buf.add(p), b'-'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(p), b'-');
+        }
         p = p.wrapping_add(1);
         let abs = (-(mc as i64)) as u64;
         (abs / 1000, ((abs % 1000) / 100) as u8)

@@ -108,7 +108,11 @@ pub fn dump(max: usize) {
         return;
     }
 
-    let start = if head >= n { head - n } else { MAX_ENTRIES - (n - head) };
+    let start = if head >= n {
+        head - n
+    } else {
+        MAX_ENTRIES - (n - head)
+    };
 
     for i in 0..n {
         let idx = (start + i) % MAX_ENTRIES;
@@ -117,8 +121,14 @@ pub fn dump(max: usize) {
             continue;
         }
         let detail = core::str::from_utf8(&e.detail[..e.detail_len as usize]).unwrap_or("?");
-        kprintln!("[{:>8}] core{} task{:>2} {:<10} {}",
-            e.tick, e.core_id, e.task_id, e.event.as_str(), detail);
+        kprintln!(
+            "[{:>8}] core{} task{:>2} {:<10} {}",
+            e.tick,
+            e.core_id,
+            e.task_id,
+            e.event.as_str(),
+            detail
+        );
     }
 
     LOCK.unlock(saved);
@@ -142,7 +152,11 @@ pub fn persist_to_fs() {
         },
     };
 
-    let start = if head >= count { head - count } else { MAX_ENTRIES - (count - head) };
+    let start = if head >= count {
+        head - count
+    } else {
+        MAX_ENTRIES - (count - head)
+    };
 
     for i in 0..count {
         let saved = LOCK.lock();
@@ -154,13 +168,27 @@ pub fn persist_to_fs() {
         }
         let detail = core::str::from_utf8(&e.detail[..e.detail_len as usize]).unwrap_or("?");
         let mut line = [0u8; ENTRY_SIZE];
-        let len = fmt_entry(&mut line, e.tick, e.core_id, e.task_id, e.event.as_str(), detail);
+        let len = fmt_entry(
+            &mut line,
+            e.tick,
+            e.core_id,
+            e.task_id,
+            e.event.as_str(),
+            detail,
+        );
         let _ = crate::fs::write(fd, &line[..len]);
     }
     let _ = crate::fs::close(fd);
 }
 
-fn fmt_entry(buf: &mut [u8; ENTRY_SIZE], tick: u64, core: u8, task: u8, event: &str, detail: &str) -> usize {
+fn fmt_entry(
+    buf: &mut [u8; ENTRY_SIZE],
+    tick: u64,
+    core: u8,
+    task: u8,
+    event: &str,
+    detail: &str,
+) -> usize {
     let mut pos = 0;
     pos += write_u64(&mut buf[pos..], tick);
     buf[pos] = b' ';

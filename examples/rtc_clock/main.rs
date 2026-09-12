@@ -73,15 +73,21 @@ fn syscall4(nr: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall(SYS_DELAY, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall(SYS_DELAY, ms as u64, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall(SYS_WRITE, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall(SYS_WRITE, ptr as u64, len as u64);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_uptime() -> u64 { syscall(SYS_UPTIME, 0, 0) }
+fn sys_uptime() -> u64 {
+    syscall(SYS_UPTIME, 0, 0)
+}
 
 /// RTC_GET_TIME: kernel writes DateTime struct to the provided pointer.
 /// Returns 0 on success, E_PERM if CAP_RTC is not granted.
@@ -104,16 +110,31 @@ fn sys_rtc_set_alarm(dt: *const DateTime) -> u64 {
 #[link_section = ".user.text"]
 #[inline(always)]
 fn is_leap_year(y: u16) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 #[link_section = ".user.text"]
 #[inline(always)]
 fn days_in_month(m: u8, leap: bool) -> u8 {
     match m {
-        1 => 31, 2 => if leap { 29 } else { 28 }, 3 => 31, 4 => 30,
-        5 => 31, 6 => 30, 7 => 31, 8 => 31,
-        9 => 30, 10 => 31, 11 => 30, 12 => 31,
+        1 => 31,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        3 => 31,
+        4 => 30,
+        5 => 31,
+        6 => 30,
+        7 => 31,
+        8 => 31,
+        9 => 30,
+        10 => 31,
+        11 => 30,
+        12 => 31,
         _ => 0,
     }
 }
@@ -243,7 +264,9 @@ fn wstatic(buf: *mut u8, pos: usize, src: *const u8, len: usize) -> usize {
 #[inline(always)]
 fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     if val == 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'0'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'0');
+        }
         return pos + 1;
     }
     let mut tmp = [0u8; 20];
@@ -251,7 +274,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     let mut n: usize = 0;
     let mut v = val;
     while v > 0 {
-        unsafe { core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8)); }
+        unsafe {
+            core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8));
+        }
         v /= 10;
         n = n.wrapping_add(1);
     }
@@ -291,8 +316,12 @@ pub fn rtc_clock_main(_arg: usize) -> ! {
 
     // 2. Probe RTC capability via RTC_GET_TIME
     let mut dt = DateTime {
-        year: 0, month: 0, day: 0,
-        hour: 0, minute: 0, second: 0,
+        year: 0,
+        month: 0,
+        day: 0,
+        hour: 0,
+        minute: 0,
+        second: 0,
     };
     let probe = sys_rtc_get_time(&mut dt);
     let rtc_ok = probe == 0;
@@ -324,8 +353,12 @@ pub fn rtc_clock_main(_arg: usize) -> ! {
         if rtc_ok {
             // Read current RTC time
             let mut now_dt = DateTime {
-                year: 0, month: 0, day: 0,
-                hour: 0, minute: 0, second: 0,
+                year: 0,
+                month: 0,
+                day: 0,
+                hour: 0,
+                minute: 0,
+                second: 0,
             };
             let r = sys_rtc_get_time(&mut now_dt);
 
@@ -339,8 +372,7 @@ pub fn rtc_clock_main(_arg: usize) -> ! {
                 let ss = epoch % 60;
 
                 // Format: [rtc] T+DDDd HH:MM:SS (epoch NNNNNN) uptime=NNNNs
-                let mut buf: core::mem::MaybeUninit<[u8; 128]> =
-                    core::mem::MaybeUninit::uninit();
+                let mut buf: core::mem::MaybeUninit<[u8; 128]> = core::mem::MaybeUninit::uninit();
                 let p = buf.as_mut_ptr() as *mut u8;
                 let mut pos: usize = 0;
 
@@ -384,8 +416,7 @@ pub fn rtc_clock_main(_arg: usize) -> ! {
         } else {
             // Uptime-only mode (no RTC capability)
             // Format: [rtc] uptime=NNNNs (no RTC capability)
-            let mut buf: core::mem::MaybeUninit<[u8; 64]> =
-                core::mem::MaybeUninit::uninit();
+            let mut buf: core::mem::MaybeUninit<[u8; 64]> = core::mem::MaybeUninit::uninit();
             let p = buf.as_mut_ptr() as *mut u8;
             let mut pos: usize = 0;
 

@@ -47,7 +47,11 @@ fn sys_uptime() -> u64 {
 #[inline(always)]
 fn sys_exit() -> ! {
     syscall(5, 0, 0);
-    loop { unsafe { asm!("wfe"); } }
+    loop {
+        unsafe {
+            asm!("wfe");
+        }
+    }
 }
 
 // String data in .user.text (EL0-accessible), not .rodata (kernel-only).
@@ -78,10 +82,7 @@ fn write_num_newline(mut n: u32) {
     let mut dlen: usize = 0;
     while n > 0 {
         unsafe {
-            core::ptr::write_volatile(
-                tp.add(dlen),
-                b'0'.wrapping_add((n % 10) as u8),
-            );
+            core::ptr::write_volatile(tp.add(dlen), b'0'.wrapping_add((n % 10) as u8));
         }
         n /= 10;
         dlen = dlen.wrapping_add(1);
@@ -96,7 +97,9 @@ fn write_num_newline(mut n: u32) {
         }
         pos = pos.wrapping_add(1);
     }
-    unsafe { core::ptr::write_volatile(ptr.add(pos), b'\n'); }
+    unsafe {
+        core::ptr::write_volatile(ptr.add(pos), b'\n');
+    }
     pos = pos.wrapping_add(1);
     sys_write_raw(ptr, pos);
 }

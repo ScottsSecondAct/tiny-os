@@ -21,7 +21,10 @@ impl SmpBoot for Aarch64Smp {
     }
 
     fn start_core(core_id: usize, entry: extern "C" fn(usize) -> !) {
-        assert!(core_id > 0 && core_id < MAX_CORES, "invalid secondary core id");
+        assert!(
+            core_id > 0 && core_id < MAX_CORES,
+            "invalid secondary core id"
+        );
 
         // Write the secondary_boot entry point to the spin-table slot.
         // secondary_boot handles EL drop, per-core stack, then calls secondary_main.
@@ -50,7 +53,10 @@ pub fn core_id() -> usize {
 /// Wake a secondary core. It will execute the EL drop sequence in
 /// secondary_boot (assembly), then call `secondary_main(core_id)` in Rust.
 pub fn start_core(core_id: usize) {
-    assert!(core_id > 0 && core_id < MAX_CORES, "invalid secondary core id");
+    assert!(
+        core_id > 0 && core_id < MAX_CORES,
+        "invalid secondary core id"
+    );
 
     let release = unsafe { &SMP_RELEASE_TABLE as *const _ as *mut u64 };
     let addr = secondary_boot as *const () as u64;

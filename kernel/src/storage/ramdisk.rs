@@ -69,7 +69,7 @@ pub fn init() {
     // Partition 1: FAT32 LBA (type 0x0C), starting at sector 1, 511 sectors
     mbr[0x1BE] = 0x80; // active
     mbr[0x1C2] = 0x0C; // FAT32 LBA
-    // LBA start = 1
+                       // LBA start = 1
     mbr[0x1C6] = 1;
     mbr[0x1C7] = 0;
     mbr[0x1C8] = 0;

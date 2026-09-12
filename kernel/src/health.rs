@@ -1,5 +1,5 @@
-use crate::{audit, hooks, integrity, klog_info, klog_warn, os_cfg, sched, watchdog};
 use crate::mm::pool;
+use crate::{audit, hooks, integrity, klog_info, klog_warn, os_cfg, sched, watchdog};
 
 const HEALTH_INTERVAL_MS: u32 = os_cfg::HEALTH_CHECK_INTERVAL_MS;
 const STACK_WARN_PERCENT: usize = os_cfg::STACK_WARN_PERCENT;
@@ -28,19 +28,33 @@ fn check_stacks() {
             continue;
         }
         task_count += 1;
-        let pct = if size > 0 { (used * 100) / size } else { 0 };
+        let pct = (used * 100).checked_div(size).unwrap_or(0);
         if pct > max_pct {
             max_pct = pct;
         }
         if pct >= STACK_WARN_PERCENT {
-            klog_warn!("health", "task '{}' (id={}) stack {}% ({}/{})", name, id, pct, used, size);
+            klog_warn!(
+                "health",
+                "task '{}' (id={}) stack {}% ({}/{})",
+                name,
+                id,
+                pct,
+                used,
+                size
+            );
             hooks::os_hook_stack_overflow(id, name);
         }
     }
 
     let (busy, total) = sched::utilization();
-    let cpu_pct = if total > 0 { ((busy * 100) / total) as u32 } else { 0 };
-    klog_info!("health", "{} tasks ok, max-stack {}%, cpu {}%", task_count, max_pct, cpu_pct);
+    let cpu_pct = (busy * 100).checked_div(total).unwrap_or(0) as u32;
+    klog_info!(
+        "health",
+        "{} tasks ok, max-stack {}%, cpu {}%",
+        task_count,
+        max_pct,
+        cpu_pct
+    );
 }
 
 fn check_utilization() {
@@ -85,7 +99,13 @@ fn check_pool_accounting() {
     for i in 0..count {
         if let Some((total, free, _blk_size)) = pool::pool_info(i) {
             if free > total {
-                klog_warn!("health", "pool {} accounting mismatch: free={} > total={}", i, free, total);
+                klog_warn!(
+                    "health",
+                    "pool {} accounting mismatch: free={} > total={}",
+                    i,
+                    free,
+                    total
+                );
                 hooks::os_hook_health_check_failed("pool_accounting");
             }
         }

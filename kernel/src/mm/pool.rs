@@ -1,7 +1,7 @@
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicU32, Ordering};
 use crate::os_cfg;
 use crate::spinlock::SpinLock;
+use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 const MAX_POOLS: usize = os_cfg::MAX_POOLS;
 const FREE_END: u32 = u32::MAX;
@@ -43,12 +43,7 @@ impl OsPool {
     }
 }
 
-pub fn pool_create(
-    pool: &mut OsPool,
-    buf: *mut u8,
-    blk_size: u32,
-    blk_count: u32,
-) -> PoolErr {
+pub fn pool_create(pool: &mut OsPool, buf: *mut u8, blk_size: u32, blk_count: u32) -> PoolErr {
     if buf.is_null() || blk_size < 4 || blk_count == 0 {
         return PoolErr::InvalidArg;
     }
@@ -121,7 +116,7 @@ pub fn pool_free(pool: &mut OsPool, blk: *mut u8) -> PoolErr {
     let blk_size = pool.blk_size as usize;
 
     // Validate: block must be within pool and aligned to block size.
-    if offset % blk_size != 0 {
+    if !offset.is_multiple_of(blk_size) {
         pool.lock.unlock(saved);
         return PoolErr::InvalidBlock;
     }

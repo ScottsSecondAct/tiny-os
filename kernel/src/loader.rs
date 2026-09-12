@@ -1,5 +1,5 @@
-use crate::{fs, mm, kprintln, sched};
 use crate::sched::Criticality;
+use crate::{fs, kprintln, mm, sched};
 use arch::aarch64::mmu::{self, UserMapping, PAGE_SIZE_4K};
 
 const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
@@ -91,7 +91,9 @@ fn read_exact(fd: usize, buf: &mut [u8]) -> Result<(), LoadError> {
     let mut pos = 0;
     while pos < buf.len() {
         let n = fs::read(fd, &mut buf[pos..]).map_err(|_| LoadError::FsError)?;
-        if n == 0 { return Err(LoadError::FsError); }
+        if n == 0 {
+            return Err(LoadError::FsError);
+        }
         pos += n;
     }
     Ok(())
@@ -103,7 +105,9 @@ fn skip_bytes(fd: usize, count: usize) -> Result<(), LoadError> {
     while remaining > 0 {
         let chunk = remaining.min(512);
         let n = fs::read(fd, &mut skip_buf[..chunk]).map_err(|_| LoadError::FsError)?;
-        if n == 0 { return Err(LoadError::FsError); }
+        if n == 0 {
+            return Err(LoadError::FsError);
+        }
         remaining -= n;
     }
     Ok(())
@@ -125,11 +129,21 @@ pub fn load_and_exec(path: &str) -> Result<u8, LoadError> {
 
     let ehdr: Elf64Ehdr = unsafe { core::ptr::read_unaligned(ehdr_buf.as_ptr().cast()) };
 
-    if ehdr.e_ident[0..4] != ELF_MAGIC { return Err(LoadError::NotElf); }
-    if ehdr.e_ident[4] != ELFCLASS64 { return Err(LoadError::WrongArch); }
-    if ehdr.e_ident[5] != ELFDATA2LSB { return Err(LoadError::WrongArch); }
-    if ehdr.e_machine != EM_AARCH64 { return Err(LoadError::WrongArch); }
-    if ehdr.e_type != ET_DYN { return Err(LoadError::NotPie); }
+    if ehdr.e_ident[0..4] != ELF_MAGIC {
+        return Err(LoadError::NotElf);
+    }
+    if ehdr.e_ident[4] != ELFCLASS64 {
+        return Err(LoadError::WrongArch);
+    }
+    if ehdr.e_ident[5] != ELFDATA2LSB {
+        return Err(LoadError::WrongArch);
+    }
+    if ehdr.e_machine != EM_AARCH64 {
+        return Err(LoadError::WrongArch);
+    }
+    if ehdr.e_type != ET_DYN {
+        return Err(LoadError::NotPie);
+    }
 
     let phoff = ehdr.e_phoff as usize;
     let phnum = ehdr.e_phnum as usize;
@@ -155,16 +169,15 @@ pub fn load_and_exec(path: &str) -> Result<u8, LoadError> {
     fs::close(fd).ok();
 
     // Parse program headers — collect PT_LOAD segments and PT_DYNAMIC.
-    let mut loads: [(Elf64Phdr, bool); MAX_SEGMENTS] = [(unsafe { core::mem::zeroed() }, false); MAX_SEGMENTS];
+    let mut loads: [(Elf64Phdr, bool); MAX_SEGMENTS] =
+        [(unsafe { core::mem::zeroed() }, false); MAX_SEGMENTS];
     let mut num_loads = 0usize;
     let mut dyn_offset = 0u64;
     let mut dyn_size = 0u64;
 
     for i in 0..phnum {
         let off = i * phentsize;
-        let phdr: Elf64Phdr = unsafe {
-            core::ptr::read_unaligned(phdr_buf[off..].as_ptr().cast())
-        };
+        let phdr: Elf64Phdr = unsafe { core::ptr::read_unaligned(phdr_buf[off..].as_ptr().cast()) };
         match phdr.p_type {
             PT_LOAD => {
                 if num_loads >= MAX_SEGMENTS {
@@ -186,12 +199,16 @@ pub fn load_and_exec(path: &str) -> Result<u8, LoadError> {
     }
 
     // Calculate total memory extent (vaddr range across all LOAD segments).
-    let vaddr_min = loads[..num_loads].iter()
+    let vaddr_min = loads[..num_loads]
+        .iter()
         .map(|(p, _)| p.p_vaddr)
-        .min().unwrap();
-    let vaddr_max = loads[..num_loads].iter()
+        .min()
+        .unwrap();
+    let vaddr_max = loads[..num_loads]
+        .iter()
         .map(|(p, _)| p.p_vaddr + p.p_memsz)
-        .max().unwrap();
+        .max()
+        .unwrap();
 
     let total_size = (vaddr_max - vaddr_min) as usize;
     let total_pages = (total_size + PAGE_SIZE_4K - 1) / PAGE_SIZE_4K;
@@ -219,17 +236,15 @@ pub fn load_and_exec(path: &str) -> Result<u8, LoadError> {
 
         if filesz > 0 {
             let fd = reopen_at(path, phdr.p_offset as usize)?;
-            let dest_slice = unsafe {
-                core::slice::from_raw_parts_mut(dest_addr as *mut u8, filesz)
-            };
+            let dest_slice =
+                unsafe { core::slice::from_raw_parts_mut(dest_addr as *mut u8, filesz) };
             read_exact(fd, dest_slice)?;
             fs::close(fd).ok();
         }
 
         // Record this as a mapped segment.
         let seg_start = dest_addr & !(PAGE_SIZE_4K - 1);
-        let seg_end = (dest_addr + phdr.p_memsz as usize + PAGE_SIZE_4K - 1)
-            & !(PAGE_SIZE_4K - 1);
+        let seg_end = (dest_addr + phdr.p_memsz as usize + PAGE_SIZE_4K - 1) & !(PAGE_SIZE_4K - 1);
         let seg_pages = (seg_end - seg_start) / PAGE_SIZE_4K;
 
         segments[num_segs] = LoadedSegment {
@@ -252,9 +267,7 @@ pub fn load_and_exec(path: &str) -> Result<u8, LoadError> {
         for _ in 0..dyn_count {
             let mut dyn_buf = [0u8; core::mem::size_of::<Elf64Dyn>()];
             read_exact(fd, &mut dyn_buf)?;
-            let dyn_entry: Elf64Dyn = unsafe {
-                core::ptr::read_unaligned(dyn_buf.as_ptr().cast())
-            };
+            let dyn_entry: Elf64Dyn = unsafe { core::ptr::read_unaligned(dyn_buf.as_ptr().cast()) };
             match dyn_entry.d_tag {
                 DT_RELA => rela_off = dyn_entry.d_val,
                 DT_RELASZ => rela_sz = dyn_entry.d_val,
@@ -270,9 +283,8 @@ pub fn load_and_exec(path: &str) -> Result<u8, LoadError> {
             for _ in 0..rela_count {
                 let mut rela_buf = [0u8; core::mem::size_of::<Elf64Rela>()];
                 read_exact(fd, &mut rela_buf)?;
-                let rela: Elf64Rela = unsafe {
-                    core::ptr::read_unaligned(rela_buf.as_ptr().cast())
-                };
+                let rela: Elf64Rela =
+                    unsafe { core::ptr::read_unaligned(rela_buf.as_ptr().cast()) };
 
                 let r_type = (rela.r_info & 0xFFFF_FFFF) as u32;
                 if r_type == R_AARCH64_RELATIVE {
@@ -317,26 +329,35 @@ pub fn load_and_exec(path: &str) -> Result<u8, LoadError> {
     map_count += 1;
 
     // Create page tables.
-    let ttbr0 = unsafe {
-        mmu::create_user_page_table_mapped(&mappings[..map_count])
-    };
+    let ttbr0 = unsafe { mmu::create_user_page_table_mapped(&mappings[..map_count]) };
 
     // Allocate a kernel stack for this task.
-    let kernel_stack_phys = mm::alloc_pages(KERNEL_STACK_SIZE / PAGE_SIZE_4K)
-        .ok_or(LoadError::OutOfMemory)?;
-    let kernel_stack: &'static mut [u8] = unsafe {
-        core::slice::from_raw_parts_mut(kernel_stack_phys as *mut u8, KERNEL_STACK_SIZE)
-    };
+    let kernel_stack_phys =
+        mm::alloc_pages(KERNEL_STACK_SIZE / PAGE_SIZE_4K).ok_or(LoadError::OutOfMemory)?;
+    let kernel_stack: &'static mut [u8] =
+        unsafe { core::slice::from_raw_parts_mut(kernel_stack_phys as *mut u8, KERNEL_STACK_SIZE) };
 
     let entry = (ehdr.e_entry as i64 + load_base) as usize;
 
     let task_id = sched::task_create_user(
-        "elf-app", 100, Criticality::Standard,
-        kernel_stack, entry, stack_top, 0, ttbr0,
-    ).map_err(|_| LoadError::OutOfMemory)?;
+        "elf-app",
+        100,
+        Criticality::Standard,
+        kernel_stack,
+        entry,
+        stack_top,
+        0,
+        ttbr0,
+    )
+    .map_err(|_| LoadError::OutOfMemory)?;
 
-    kprintln!("loader: loaded '{}' at {:#x}, entry {:#x}, task {}",
-        path, phys_base, entry, task_id);
+    kprintln!(
+        "loader: loaded '{}' at {:#x}, entry {:#x}, task {}",
+        path,
+        phys_base,
+        entry,
+        task_id
+    );
 
     Ok(task_id)
 }

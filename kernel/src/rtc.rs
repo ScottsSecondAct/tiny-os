@@ -1,5 +1,5 @@
 use arch::rtc::{DateTime, RtcError};
-use core::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 static EPOCH_SECS: AtomicU64 = AtomicU64::new(0);
 static EPOCH_TICK: AtomicU64 = AtomicU64::new(0);
@@ -60,8 +60,10 @@ pub fn check_alarm() -> bool {
 }
 
 fn valid_datetime(dt: &DateTime) -> bool {
-    dt.month >= 1 && dt.month <= 12
-        && dt.day >= 1 && dt.day <= days_in_month(dt.month, is_leap_year(dt.year))
+    dt.month >= 1
+        && dt.month <= 12
+        && dt.day >= 1
+        && dt.day <= days_in_month(dt.month, is_leap_year(dt.year))
         && dt.hour < 24
         && dt.minute < 60
         && dt.second < 60
@@ -69,14 +71,29 @@ fn valid_datetime(dt: &DateTime) -> bool {
 }
 
 fn is_leap_year(y: u16) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 fn days_in_month(m: u8, leap: bool) -> u8 {
     match m {
-        1 => 31, 2 => if leap { 29 } else { 28 }, 3 => 31, 4 => 30,
-        5 => 31, 6 => 30, 7 => 31, 8 => 31,
-        9 => 30, 10 => 31, 11 => 30, 12 => 31,
+        1 => 31,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        3 => 31,
+        4 => 30,
+        5 => 31,
+        6 => 30,
+        7 => 31,
+        8 => 31,
+        9 => 30,
+        10 => 31,
+        11 => 30,
+        12 => 31,
         _ => 0,
     }
 }

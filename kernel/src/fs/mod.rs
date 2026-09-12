@@ -1,9 +1,9 @@
 pub mod fat32;
 
-use fat32::{DirCursor, DirEntry, Fat32State, FsError, OpenFile};
-use core::cell::UnsafeCell;
 use crate::os_cfg;
 use crate::storage;
+use core::cell::UnsafeCell;
+use fat32::{DirCursor, DirEntry, Fat32State, FsError, OpenFile};
 
 const MAX_OPEN: usize = os_cfg::MAX_OPEN_FILES;
 
@@ -27,8 +27,7 @@ fn state() -> &'static mut FsState {
 }
 
 pub fn init() -> Result<(), FsError> {
-    let (part_lba, _part_size) = storage::find_fat32_partition()
-        .ok_or(FsError::NotMounted)?;
+    let (part_lba, _part_size) = storage::find_fat32_partition().ok_or(FsError::NotMounted)?;
     let s = state();
     fat32::mount(&mut s.fat32, part_lba)?;
     Ok(())
@@ -43,8 +42,8 @@ pub fn cluster_count() -> u32 {
 }
 
 fn alloc_fd(s: &mut FsState) -> Result<usize, FsError> {
-    for i in 0..MAX_OPEN {
-        if !s.files[i].active {
+    for (i, file) in s.files.iter().enumerate().take(MAX_OPEN) {
+        if !file.active {
             return Ok(i);
         }
     }
@@ -57,8 +56,7 @@ pub fn open(path: &str, writable: bool) -> Result<usize, FsError> {
         return Err(FsError::NotMounted);
     }
 
-    let (cluster, size, is_dir, parent_cluster, entry_idx) =
-        fat32::resolve_path(&s.fat32, path)?;
+    let (cluster, size, is_dir, parent_cluster, entry_idx) = fat32::resolve_path(&s.fat32, path)?;
 
     if is_dir {
         return Err(FsError::IsADirectory);
@@ -104,11 +102,7 @@ pub fn create(path: &str) -> Result<usize, FsError> {
     }
 
     // Check if file already exists
-    let full_path = if dir_path.is_empty() {
-        path
-    } else {
-        path
-    };
+    let full_path = path;
     if fat32::resolve_path(&s.fat32, full_path).is_ok() {
         // File exists — open it for writing
         let (cluster, size, _, parent_cluster, entry_idx) =
@@ -261,9 +255,7 @@ pub fn readdir_next(fd: usize) -> Result<Option<DirEntry>, FsError> {
     }
 
     // SAFETY: Single-task access.
-    let cursor = unsafe {
-        DIR_CURSORS[fd].as_mut().ok_or(FsError::BadFd)?
-    };
+    let cursor = unsafe { DIR_CURSORS[fd].as_mut().ok_or(FsError::BadFd)? };
 
     fat32::readdir_next(&s.fat32, cursor)
 }

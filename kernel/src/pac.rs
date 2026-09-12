@@ -22,7 +22,9 @@ pub fn init() {
     }
 
     let supported = detect();
-    unsafe { PAC_SUPPORTED = supported; }
+    unsafe {
+        PAC_SUPPORTED = supported;
+    }
 
     if !supported {
         crate::kprintln!("pac: not supported on this CPU");
@@ -62,8 +64,12 @@ pub fn is_supported() -> bool {
 }
 
 pub fn status() {
-    crate::kprintln!("pac: supported={}, active={}, cfg={}",
-        is_supported(), is_active(), os_cfg::PAC_EN);
+    crate::kprintln!(
+        "pac: supported={}, active={}, cfg={}",
+        is_supported(),
+        is_active(),
+        os_cfg::PAC_EN
+    );
     if is_active() {
         crate::kprintln!("pac: PACIASP/AUTIASP protecting return addresses");
     }

@@ -81,8 +81,7 @@ fn parse_struct(base: *const u8, strings: *const u8, max_len: usize) -> Option<R
                 off += align4(name.len() + 1);
                 depth += 1;
                 // /memory or /memory@... at depth 1
-                in_memory = depth == 1
-                    && (name == "memory" || name.starts_with("memory@"));
+                in_memory = depth == 1 && (name == "memory" || name.starts_with("memory@"));
             }
             FDT_END_NODE => {
                 if in_memory && depth == 1 {

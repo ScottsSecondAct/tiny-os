@@ -8,11 +8,7 @@ pub trait Context {
 
     /// Create an initial context that will begin executing `entry(arg)` using
     /// the given stack. `stack_top` points one past the last usable byte.
-    fn new_context(
-        entry: fn(usize) -> !,
-        arg: usize,
-        stack_top: *mut u8,
-    ) -> Self::SavedContext;
+    fn new_context(entry: fn(usize) -> !, arg: usize, stack_top: *mut u8) -> Self::SavedContext;
 
     /// Switch from the current task to `next`. Saves the current SP into
     /// `*current_sp` and restores SP from `*next_sp`, then returns into

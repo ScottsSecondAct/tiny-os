@@ -32,5 +32,7 @@ pub fn get_voltage() -> Result<u32, PowerError> {
 
 pub fn cpu_idle() {
     // SAFETY: WFI is a safe hint instruction that waits for an interrupt.
-    unsafe { core::arch::asm!("wfi"); }
+    unsafe {
+        core::arch::asm!("wfi");
+    }
 }

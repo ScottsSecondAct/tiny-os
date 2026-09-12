@@ -14,11 +14,21 @@ pub fn os_hook_stack_overflow(task_id: u8, name: &str) {
 }
 
 pub fn os_hook_data_abort(task_id: u8, addr: u64, esr: u64) {
-    kprintln!("HOOK: data abort task {} addr={:#x} esr={:#x}", task_id, addr, esr);
+    kprintln!(
+        "HOOK: data abort task {} addr={:#x} esr={:#x}",
+        task_id,
+        addr,
+        esr
+    );
 }
 
 pub fn os_hook_hard_fault(esr: u64, elr: u64, far: u64) {
-    kprintln!("HOOK: hard fault esr={:#x} elr={:#x} far={:#x}", esr, elr, far);
+    kprintln!(
+        "HOOK: hard fault esr={:#x} elr={:#x} far={:#x}",
+        esr,
+        elr,
+        far
+    );
 }
 
 pub fn os_hook_assert(file: &str, line: u32) {
@@ -42,7 +52,12 @@ pub fn os_hook_deadline_miss(task_id: u8, name: &str) {
 }
 
 pub fn os_hook_task_terminated(task_id: u8, name: &str, reason: u32) {
-    kprintln!("HOOK: task terminated {}:{} reason={}", task_id, name, reason);
+    kprintln!(
+        "HOOK: task terminated {}:{} reason={}",
+        task_id,
+        name,
+        reason
+    );
 }
 
 pub fn os_hook_watchdog_expired() {

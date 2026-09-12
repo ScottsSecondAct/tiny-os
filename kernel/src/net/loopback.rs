@@ -84,18 +84,14 @@ impl NetDevice for Loopback {
 
             let proto = modified[23];
             let ip_payload_off = 14 + ihl;
-            if proto == 1 && pkt_len > ip_payload_off {
-                if modified[ip_payload_off] == 8 {
-                    modified[ip_payload_off] = 0;
-                    let icmp_end = pkt_len;
-                    modified[ip_payload_off + 2] = 0;
-                    modified[ip_payload_off + 3] = 0;
-                    let icmp_csum = super::ipv4::checksum(
-                        &modified[ip_payload_off..icmp_end],
-                    );
-                    modified[ip_payload_off + 2..ip_payload_off + 4]
-                        .copy_from_slice(&icmp_csum.to_be_bytes());
-                }
+            if proto == 1 && pkt_len > ip_payload_off && modified[ip_payload_off] == 8 {
+                modified[ip_payload_off] = 0;
+                let icmp_end = pkt_len;
+                modified[ip_payload_off + 2] = 0;
+                modified[ip_payload_off + 3] = 0;
+                let icmp_csum = super::ipv4::checksum(&modified[ip_payload_off..icmp_end]);
+                modified[ip_payload_off + 2..ip_payload_off + 4]
+                    .copy_from_slice(&icmp_csum.to_be_bytes());
             }
         }
 

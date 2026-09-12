@@ -18,7 +18,13 @@ pub struct TaskParams {
 
 impl TaskParams {
     pub const fn empty() -> Self {
-        Self { id: 0, period: 0, wcet: 0, blocking: 0, priority: 255 }
+        Self {
+            id: 0,
+            period: 0,
+            wcet: 0,
+            blocking: 0,
+            priority: 255,
+        }
     }
 }
 
@@ -81,9 +87,7 @@ pub fn response_time_analysis(tasks: &[TaskParams]) -> AnalysisResult {
 
     // Sort tasks by priority (lower number = higher priority).
     let mut sorted: [TaskParams; MAX_TASKSET] = [TaskParams::empty(); MAX_TASKSET];
-    for i in 0..n {
-        sorted[i] = tasks[i];
-    }
+    sorted[..n].copy_from_slice(&tasks[..n]);
     for i in 0..n {
         for j in (i + 1)..n {
             if sorted[j].priority < sorted[i].priority {
@@ -111,10 +115,10 @@ pub fn response_time_analysis(tasks: &[TaskParams]) -> AnalysisResult {
 
         for _iter in 0..100 {
             let mut interference: u64 = 0;
-            for j in 0..i {
-                if sorted[j].period > 0 {
-                    let ceil = (r as u64 + sorted[j].period as u64 - 1) / sorted[j].period as u64;
-                    interference += ceil * sorted[j].wcet as u64;
+            for item in sorted.iter().take(i) {
+                if item.period > 0 {
+                    let ceil = (r as u64).div_ceil(item.period as u64);
+                    interference += ceil * item.wcet as u64;
                 }
             }
 
@@ -145,12 +149,24 @@ pub fn response_time_analysis(tasks: &[TaskParams]) -> AnalysisResult {
 pub fn dump_analysis(tasks: &[TaskParams]) {
     let result = response_time_analysis(tasks);
     crate::kprintln!("=== Schedulability Analysis ===");
-    crate::kprintln!("Utilization: {}% (bound: {}%)", result.utilization_pct, result.utilization_bound_pct);
-    crate::kprintln!("Schedulable: {}", if result.schedulable { "YES" } else { "NO" });
+    crate::kprintln!(
+        "Utilization: {}% (bound: {}%)",
+        result.utilization_pct,
+        result.utilization_bound_pct
+    );
+    crate::kprintln!(
+        "Schedulable: {}",
+        if result.schedulable { "YES" } else { "NO" }
+    );
     for i in 0..result.task_count {
-        crate::kprintln!("  Task {} (prio={}, C={}, T={}, B={}): R={}",
-            tasks[i].id, tasks[i].priority,
-            tasks[i].wcet, tasks[i].period, tasks[i].blocking,
-            result.response_times[i]);
+        crate::kprintln!(
+            "  Task {} (prio={}, C={}, T={}, B={}): R={}",
+            tasks[i].id,
+            tasks[i].priority,
+            tasks[i].wcet,
+            tasks[i].period,
+            tasks[i].blocking,
+            result.response_times[i]
+        );
     }
 }

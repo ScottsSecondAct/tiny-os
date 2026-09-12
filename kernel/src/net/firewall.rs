@@ -1,8 +1,8 @@
+use super::ipv4::{self, Ipv4Header, PROTO_ICMP, PROTO_TCP, PROTO_UDP};
+use super::Ipv4Addr;
 use crate::os_cfg;
 use crate::spinlock::SpinLock;
 use core::sync::atomic::{AtomicU64, Ordering};
-use super::ipv4::{self, Ipv4Header, PROTO_ICMP, PROTO_TCP, PROTO_UDP};
-use super::Ipv4Addr;
 
 const MAX_RULES: usize = os_cfg::MAX_FIREWALL_RULES;
 
@@ -68,7 +68,7 @@ pub fn init() {
     unsafe {
         RULE_COUNT = 0;
         ENABLED = false;
-        for r in RULES.iter_mut() {
+        for r in (*core::ptr::addr_of_mut!(RULES)).iter_mut() {
             *r = FirewallRule::empty();
         }
     }
@@ -119,7 +119,7 @@ pub fn clear_rules() {
     let saved = LOCK.lock();
     unsafe {
         RULE_COUNT = 0;
-        for r in RULES.iter_mut() {
+        for r in (*core::ptr::addr_of_mut!(RULES)).iter_mut() {
             *r = FirewallRule::empty();
         }
     }
@@ -153,8 +153,7 @@ pub fn check_packet(ip_data: &[u8], hdr: &Ipv4Header) -> bool {
     let count = unsafe { RULE_COUNT };
     let dst_port = extract_dst_port(ip_data, hdr);
 
-    for i in 0..count {
-        let rule = unsafe { &RULES[i] };
+    for rule in unsafe { (*core::ptr::addr_of!(RULES)).iter().take(count) } {
         if !rule.active {
             continue;
         }
@@ -178,7 +177,10 @@ pub fn check_packet(ip_data: &[u8], hdr: &Ipv4Header) -> bool {
 }
 
 pub fn stats() -> (u64, u64) {
-    (PASSED.load(Ordering::Relaxed), DROPPED.load(Ordering::Relaxed))
+    (
+        PASSED.load(Ordering::Relaxed),
+        DROPPED.load(Ordering::Relaxed),
+    )
 }
 
 pub fn rule_count() -> usize {

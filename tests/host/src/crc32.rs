@@ -5,7 +5,11 @@ const CRC32_TABLE: [u32; 256] = {
         let mut crc = i as u32;
         let mut j = 0;
         while j < 8 {
-            if crc & 1 != 0 { crc = (crc >> 1) ^ 0xEDB88320; } else { crc >>= 1; }
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xEDB88320;
+            } else {
+                crc >>= 1;
+            }
             j += 1;
         }
         table[i] = crc;

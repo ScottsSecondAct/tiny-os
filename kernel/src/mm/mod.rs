@@ -3,11 +3,11 @@ pub mod heap;
 pub mod pmm;
 pub mod pool;
 
-use core::cell::UnsafeCell;
-use arch::aarch64::mmu::{self, MemKind, MemRegion};
-use arch::mm::PageAllocator;
 use crate::kprintln;
 use crate::os_cfg;
+use arch::aarch64::mmu::{self, MemKind, MemRegion};
+use arch::mm::PageAllocator;
+use core::cell::UnsafeCell;
 
 const PAGE_SIZE: usize = 4096;
 const HEAP_PAGES: usize = os_cfg::HEAP_PAGES;
@@ -36,25 +36,45 @@ pub fn init() {
         None => bsp_default_ram(),
     };
 
-    kprintln!("RAM: {:#x} - {:#x} ({} MB)", ram_base, ram_base + ram_size, ram_size >> 20);
+    kprintln!(
+        "RAM: {:#x} - {:#x} ({} MB)",
+        ram_base,
+        ram_base + ram_size,
+        ram_size >> 20
+    );
 
     pmm().init(ram_base, ram_size);
 
     // Reserve everything from 0 to kernel end (code + BSS + stack).
     let kernel_end = unsafe { &__stack_top as *const u8 as usize };
     pmm().mark_range_used(0, kernel_end);
-    kprintln!("kernel: {:#x} - {:#x} ({} KB reserved)", 0x80000, kernel_end, (kernel_end - 0x80000) >> 10);
+    kprintln!(
+        "kernel: {:#x} - {:#x} ({} KB reserved)",
+        0x80000,
+        kernel_end,
+        (kernel_end - 0x80000) >> 10
+    );
 
     // Build MMU identity-mapping regions and enable.
     let regions = bsp_mem_regions(ram_base, ram_size);
     let data_start = unsafe { &__data_start as *const u8 as usize };
     unsafe { mmu::init(&regions) };
     kprintln!("MMU: enabled, identity-mapped, W^X, caches on");
-    kprintln!("W^X: code RX {:#x}-{:#x}, data RW+NX {:#x}+", 0x80000usize, data_start, data_start);
+    kprintln!(
+        "W^X: code RX {:#x}-{:#x}, data RW+NX {:#x}+",
+        0x80000usize,
+        data_start,
+        data_start
+    );
 
     // Reserve DMA pool region from PMM (NC-mapped by bsp_mem_regions).
     pmm().mark_range_used(DMA_POOL_BASE, DMA_POOL_SIZE);
-    kprintln!("dma pool: {:#x} - {:#x} ({} KB, non-cacheable)", DMA_POOL_BASE, DMA_POOL_BASE + DMA_POOL_SIZE, DMA_POOL_SIZE >> 10);
+    kprintln!(
+        "dma pool: {:#x} - {:#x} ({} KB, non-cacheable)",
+        DMA_POOL_BASE,
+        DMA_POOL_BASE + DMA_POOL_SIZE,
+        DMA_POOL_SIZE >> 10
+    );
 
     // Seed the heap from PMM pages (disabled in safety-critical mode).
     #[cfg(not(feature = "safety-critical"))]
@@ -98,11 +118,17 @@ pub fn free_pages(base: usize, count: usize) {
 fn bsp_default_ram() -> (usize, usize) {
     #[cfg(feature = "bsp-qemu")]
     {
-        (bsp::qemu_virt::memory_map::RAM_BASE, bsp::qemu_virt::memory_map::RAM_SIZE_DEFAULT)
+        (
+            bsp::qemu_virt::memory_map::RAM_BASE,
+            bsp::qemu_virt::memory_map::RAM_SIZE_DEFAULT,
+        )
     }
     #[cfg(feature = "bsp-rpi5")]
     {
-        (bsp::rpi5::memory_map::RAM_BASE, bsp::rpi5::memory_map::RAM_SIZE_DEFAULT)
+        (
+            bsp::rpi5::memory_map::RAM_BASE,
+            bsp::rpi5::memory_map::RAM_SIZE_DEFAULT,
+        )
     }
 }
 
@@ -119,24 +145,72 @@ fn bsp_mem_regions(ram_base: usize, ram_size: usize) -> [MemRegion; 6] {
     {
         use bsp::qemu_virt::memory_map as mm;
         [
-            MemRegion { base: ram_base, size: code_size, kind: MemKind::RoCode },
-            MemRegion { base: data_start, size: data_size, kind: MemKind::Ram },
-            MemRegion { base: mm::PERIPH_BASE, size: mm::PERIPH_SIZE, kind: MemKind::Device },
-            MemRegion { base: DMA_POOL_BASE, size: DMA_POOL_SIZE, kind: MemKind::NonCacheable },
-            MemRegion { base: 0, size: 0, kind: MemKind::Ram },
-            MemRegion { base: 0, size: 0, kind: MemKind::Ram },
+            MemRegion {
+                base: ram_base,
+                size: code_size,
+                kind: MemKind::RoCode,
+            },
+            MemRegion {
+                base: data_start,
+                size: data_size,
+                kind: MemKind::Ram,
+            },
+            MemRegion {
+                base: mm::PERIPH_BASE,
+                size: mm::PERIPH_SIZE,
+                kind: MemKind::Device,
+            },
+            MemRegion {
+                base: DMA_POOL_BASE,
+                size: DMA_POOL_SIZE,
+                kind: MemKind::NonCacheable,
+            },
+            MemRegion {
+                base: 0,
+                size: 0,
+                kind: MemKind::Ram,
+            },
+            MemRegion {
+                base: 0,
+                size: 0,
+                kind: MemKind::Ram,
+            },
         ]
     }
     #[cfg(feature = "bsp-rpi5")]
     {
         use bsp::rpi5::memory_map as mm;
         [
-            MemRegion { base: ram_base, size: code_size, kind: MemKind::RoCode },
-            MemRegion { base: data_start, size: data_size, kind: MemKind::Ram },
-            MemRegion { base: mm::PERIPH_BASE, size: mm::PERIPH_SIZE, kind: MemKind::Device },
-            MemRegion { base: mm::RP1_PERIPH_BASE, size: mm::RP1_PERIPH_SIZE, kind: MemKind::Device },
-            MemRegion { base: DMA_POOL_BASE, size: DMA_POOL_SIZE, kind: MemKind::NonCacheable },
-            MemRegion { base: 0, size: 0, kind: MemKind::Ram },
+            MemRegion {
+                base: ram_base,
+                size: code_size,
+                kind: MemKind::RoCode,
+            },
+            MemRegion {
+                base: data_start,
+                size: data_size,
+                kind: MemKind::Ram,
+            },
+            MemRegion {
+                base: mm::PERIPH_BASE,
+                size: mm::PERIPH_SIZE,
+                kind: MemKind::Device,
+            },
+            MemRegion {
+                base: mm::RP1_PERIPH_BASE,
+                size: mm::RP1_PERIPH_SIZE,
+                kind: MemKind::Device,
+            },
+            MemRegion {
+                base: DMA_POOL_BASE,
+                size: DMA_POOL_SIZE,
+                kind: MemKind::NonCacheable,
+            },
+            MemRegion {
+                base: 0,
+                size: 0,
+                kind: MemKind::Ram,
+            },
         ]
     }
 }

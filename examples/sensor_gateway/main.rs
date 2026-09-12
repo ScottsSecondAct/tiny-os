@@ -87,31 +87,51 @@ fn syscall2(nr: u64, a0: u64, a1: u64) -> u64 {
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall2(SYS_DELAY, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall2(SYS_DELAY, ms as u64, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall2(SYS_WRITE, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall2(SYS_WRITE, ptr as u64, len as u64);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_uptime() -> u64 { syscall2(SYS_UPTIME, 0, 0) }
+fn sys_uptime() -> u64 {
+    syscall2(SYS_UPTIME, 0, 0)
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_temperature() -> i32 { syscall2(SYS_TEMPERATURE, 0, 0) as i32 }
+fn sys_temperature() -> i32 {
+    syscall2(SYS_TEMPERATURE, 0, 0) as i32
+}
 
 // FS syscalls
 #[link_section = ".user.text"]
 #[inline(always)]
 fn sys_fs_create(path: &[u8]) -> u64 {
-    syscall4(SYS_FS, FS_CREATE, path.as_ptr() as u64, path.len() as u64, 0)
+    syscall4(
+        SYS_FS,
+        FS_CREATE,
+        path.as_ptr() as u64,
+        path.len() as u64,
+        0,
+    )
 }
 
 #[link_section = ".user.text"]
 #[inline(always)]
 fn sys_fs_write(fd: u64, data: &[u8]) -> u64 {
-    syscall4(SYS_FS, FS_WRITE_OP, fd, data.as_ptr() as u64, data.len() as u64)
+    syscall4(
+        SYS_FS,
+        FS_WRITE_OP,
+        fd,
+        data.as_ptr() as u64,
+        data.len() as u64,
+    )
 }
 
 #[link_section = ".user.text"]
@@ -130,7 +150,13 @@ fn sys_net_socket(sock_type: u64) -> u64 {
 #[link_section = ".user.text"]
 #[inline(always)]
 fn sys_net_send(fd: u64, data: &[u8]) -> u64 {
-    syscall4(SYS_NET, NET_SEND, fd, data.as_ptr() as u64, data.len() as u64)
+    syscall4(
+        SYS_NET,
+        NET_SEND,
+        fd,
+        data.as_ptr() as u64,
+        data.len() as u64,
+    )
 }
 
 #[link_section = ".user.text"]
@@ -150,7 +176,13 @@ fn sys_spi_open(clock_hz: u32, mode: u8, cs: u8) -> u64 {
 #[inline(always)]
 fn sys_spi_transfer(tx: &[u8], rx: &mut [u8]) -> u64 {
     let len = tx.len().min(rx.len());
-    syscall4(SYS_SPI, SPI_TRANSFER, tx.as_ptr() as u64, rx.as_mut_ptr() as u64, len as u64)
+    syscall4(
+        SYS_SPI,
+        SPI_TRANSFER,
+        tx.as_ptr() as u64,
+        rx.as_mut_ptr() as u64,
+        len as u64,
+    )
 }
 
 // I2C syscalls
@@ -163,13 +195,25 @@ fn sys_i2c_open(clock_hz: u32) -> u64 {
 #[link_section = ".user.text"]
 #[inline(always)]
 fn sys_i2c_write(addr: u8, data: &[u8]) -> u64 {
-    syscall4(SYS_I2C, I2C_WRITE_OP, addr as u64, data.as_ptr() as u64, data.len() as u64)
+    syscall4(
+        SYS_I2C,
+        I2C_WRITE_OP,
+        addr as u64,
+        data.as_ptr() as u64,
+        data.len() as u64,
+    )
 }
 
 #[link_section = ".user.text"]
 #[inline(always)]
 fn sys_i2c_read(addr: u8, buf: &mut [u8]) -> u64 {
-    syscall4(SYS_I2C, I2C_READ, addr as u64, buf.as_mut_ptr() as u64, buf.len() as u64)
+    syscall4(
+        SYS_I2C,
+        I2C_READ,
+        addr as u64,
+        buf.as_mut_ptr() as u64,
+        buf.len() as u64,
+    )
 }
 
 // GPIO syscalls
@@ -264,7 +308,9 @@ fn wstatic(buf: *mut u8, pos: usize, src: *const u8, len: usize) -> usize {
 #[inline(always)]
 fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     if val == 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'0'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'0');
+        }
         return pos + 1;
     }
     let mut tmp = [0u8; 20];
@@ -272,7 +318,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     let mut n: usize = 0;
     let mut v = val;
     while v > 0 {
-        unsafe { core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8)); }
+        unsafe {
+            core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8));
+        }
         v /= 10;
         n = n.wrapping_add(1);
     }
@@ -293,7 +341,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
 #[inline(always)]
 fn wi32(buf: *mut u8, pos: usize, val: i32) -> usize {
     if val < 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'-'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'-');
+        }
         wu64(buf, pos + 1, (-(val as i64)) as u64)
     } else {
         wu64(buf, pos, val as u64)
@@ -329,7 +379,11 @@ fn read_pressure_spi(spi_ok: bool) -> u32 {
     let raw = ((rx[1] as u32) << 12) | ((rx[2] as u32) << 4) | ((rx[3] as u32) >> 4);
     // Simplified conversion (no compensation — would need calibration data)
     // Return as Pa (approximately)
-    if raw > 0 { raw / 4 } else { 101325 }
+    if raw > 0 {
+        raw / 4
+    } else {
+        101325
+    }
 }
 
 #[link_section = ".user.text"]
@@ -353,7 +407,11 @@ fn read_temperature_i2c(i2c_ok: bool) -> i32 {
     let raw = ((data[0] as i32) << 12) | ((data[1] as i32) << 4) | ((data[2] as i32) >> 4);
     // Simplified conversion to millidegrees Celsius
     // (Real implementation would use BMP280 compensation formula)
-    if raw > 0 { raw * 10 / 52 } else { sys_temperature() }
+    if raw > 0 {
+        raw * 10 / 52
+    } else {
+        sys_temperature()
+    }
 }
 
 #[link_section = ".user.text"]
@@ -427,7 +485,9 @@ fn print_reading(reading: &SensorReading, sample_num: u64) {
 
     pos = wstatic(p, pos, MSG_SAMPLE.as_ptr(), 10);
     pos = wu64(p, pos, sample_num);
-    unsafe { core::ptr::write_volatile(p.add(pos), b' '); }
+    unsafe {
+        core::ptr::write_volatile(p.add(pos), b' ');
+    }
     pos += 1;
     pos = wstatic(p, pos, S_TEMP.as_ptr(), 2);
     pos = wi32(p, pos, reading.temperature_mc);

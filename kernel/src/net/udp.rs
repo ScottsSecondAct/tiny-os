@@ -1,5 +1,5 @@
-use crate::netbuf;
 use super::{ethernet, ipv4, Ipv4Addr};
+use crate::netbuf;
 use core::cell::UnsafeCell;
 
 const UDP_HEADER_LEN: usize = 8;
@@ -116,15 +116,13 @@ pub fn process_rx(buf_idx: u16, ip_hdr: &ipv4::Ipv4Header) {
 
     let s = state();
     for sock in s.sockets.iter_mut() {
-        if sock.bound && sock.port == dst_port {
-            if sock.rx_count < MAX_RX_QUEUE {
-                sock.rx_queue[sock.rx_tail] = buf_idx;
-                sock.rx_src_ip[sock.rx_tail] = ip_hdr.src;
-                sock.rx_src_port[sock.rx_tail] = _src_port;
-                sock.rx_tail = (sock.rx_tail + 1) % MAX_RX_QUEUE;
-                sock.rx_count += 1;
-                return;
-            }
+        if sock.bound && sock.port == dst_port && sock.rx_count < MAX_RX_QUEUE {
+            sock.rx_queue[sock.rx_tail] = buf_idx;
+            sock.rx_src_ip[sock.rx_tail] = ip_hdr.src;
+            sock.rx_src_port[sock.rx_tail] = _src_port;
+            sock.rx_tail = (sock.rx_tail + 1) % MAX_RX_QUEUE;
+            sock.rx_count += 1;
+            return;
         }
     }
 

@@ -1,6 +1,6 @@
-use core::cell::UnsafeCell;
-use crate::sched::{self, CriticalSection, WaitResult};
 use super::WaitQueue;
+use crate::sched::{self, CriticalSection, WaitResult};
+use core::cell::UnsafeCell;
 
 struct SemInner {
     count: u32,
@@ -32,6 +32,7 @@ impl Semaphore {
         Self::new(init, 1)
     }
 
+    #[allow(clippy::mut_from_ref)]
     fn inner(&self) -> &mut SemInner {
         // SAFETY: Caller holds CriticalSection.
         unsafe { &mut *self.inner.get() }

@@ -1,7 +1,7 @@
-pub mod mutex;
-pub mod semaphore;
 pub mod events;
 pub mod msgqueue;
+pub mod mutex;
+pub mod semaphore;
 
 use crate::os_cfg;
 use crate::sched::{self, TaskState};
@@ -45,8 +45,7 @@ impl WaitQueue {
     pub fn pop_highest(&mut self) -> Option<u8> {
         let mut best_idx: Option<usize> = None;
         let mut best_prio: u8 = 255;
-        for i in 0..self.count as usize {
-            let id = self.tasks[i];
+        for (i, &id) in self.tasks.iter().enumerate().take(self.count as usize) {
             if sched::get_state(id) == TaskState::Blocked {
                 let prio = sched::get_priority(id);
                 if best_idx.is_none() || prio < best_prio {
@@ -70,8 +69,7 @@ impl WaitQueue {
     /// Highest priority among blocked waiters.
     pub fn highest_blocked_priority(&self) -> Option<u8> {
         let mut best: Option<u8> = None;
-        for i in 0..self.count as usize {
-            let id = self.tasks[i];
+        for &id in self.tasks.iter().take(self.count as usize) {
             if sched::get_state(id) == TaskState::Blocked {
                 let prio = sched::get_priority(id);
                 best = Some(match best {

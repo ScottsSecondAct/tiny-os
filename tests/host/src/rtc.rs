@@ -18,9 +18,24 @@ fn is_leap_year(y: u16) -> bool {
 
 fn days_in_month(m: u8, leap: bool) -> u8 {
     match m {
-        1 => 31, 2 => if leap { 29 } else { 28 }, 3 => 31, 4 => 30,
-        5 => 31, 6 => 30, 7 => 31, 8 => 31,
-        9 => 30, 10 => 31, 11 => 30, 12 => 31,
+        1 => 31,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        3 => 31,
+        4 => 30,
+        5 => 31,
+        6 => 30,
+        7 => 31,
+        8 => 31,
+        9 => 30,
+        10 => 31,
+        11 => 30,
+        12 => 31,
         _ => 0,
     }
 }
@@ -88,7 +103,14 @@ fn unix_epoch_zero() {
 
 #[test]
 fn unix_epoch_roundtrip() {
-    let dt = DateTime { year: 2025, month: 6, day: 15, hour: 12, minute: 30, second: 45 };
+    let dt = DateTime {
+        year: 2025,
+        month: 6,
+        day: 15,
+        hour: 12,
+        minute: 30,
+        second: 45,
+    };
     let ts = datetime_to_unix(&dt);
     let dt2 = unix_to_datetime(ts);
     assert_eq!(dt2.year, 2025);
@@ -101,7 +123,14 @@ fn unix_epoch_roundtrip() {
 
 #[test]
 fn leap_year_feb29() {
-    let dt = DateTime { year: 2024, month: 2, day: 29, hour: 0, minute: 0, second: 0 };
+    let dt = DateTime {
+        year: 2024,
+        month: 2,
+        day: 29,
+        hour: 0,
+        minute: 0,
+        second: 0,
+    };
     let ts = datetime_to_unix(&dt);
     let dt2 = unix_to_datetime(ts);
     assert_eq!(dt2.year, 2024);
@@ -121,13 +150,27 @@ fn non_leap_year() {
 #[test]
 fn known_timestamp() {
     // 2000-01-01 00:00:00 = 946684800
-    let dt = DateTime { year: 2000, month: 1, day: 1, hour: 0, minute: 0, second: 0 };
+    let dt = DateTime {
+        year: 2000,
+        month: 1,
+        day: 1,
+        hour: 0,
+        minute: 0,
+        second: 0,
+    };
     assert_eq!(datetime_to_unix(&dt), 946684800);
 }
 
 #[test]
 fn year_end_boundary() {
-    let dt = DateTime { year: 2024, month: 12, day: 31, hour: 23, minute: 59, second: 59 };
+    let dt = DateTime {
+        year: 2024,
+        month: 12,
+        day: 31,
+        hour: 23,
+        minute: 59,
+        second: 59,
+    };
     let ts = datetime_to_unix(&dt);
     let dt2 = unix_to_datetime(ts);
     assert_eq!(dt2.year, 2024);

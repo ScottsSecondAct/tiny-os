@@ -1,5 +1,5 @@
-pub mod mbr;
 pub mod cache;
+pub mod mbr;
 pub mod ramdisk;
 
 use arch::aarch64::emmc2;
@@ -87,7 +87,7 @@ pub fn cached_read(lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
         ActiveDevice::Emmc2 => {
             static mut EMMC: Emmc2Wrapper = Emmc2Wrapper;
             // SAFETY: Single-task access.
-            unsafe { &mut EMMC as &mut dyn BlockDevice }
+            unsafe { &mut *core::ptr::addr_of_mut!(EMMC) as &mut dyn BlockDevice }
         }
         ActiveDevice::RamDisk => ramdisk::device(),
         ActiveDevice::None => return Err(BlockError::NoMedia),
@@ -101,7 +101,7 @@ pub fn cached_write(lba: u64, buf: &[u8]) -> Result<(), BlockError> {
         ActiveDevice::Emmc2 => {
             static mut EMMC: Emmc2Wrapper = Emmc2Wrapper;
             // SAFETY: Single-task access.
-            unsafe { &mut EMMC as &mut dyn BlockDevice }
+            unsafe { &mut *core::ptr::addr_of_mut!(EMMC) as &mut dyn BlockDevice }
         }
         ActiveDevice::RamDisk => ramdisk::device(),
         ActiveDevice::None => return Err(BlockError::NoMedia),
@@ -115,7 +115,7 @@ pub fn flush() -> Result<(), BlockError> {
         ActiveDevice::Emmc2 => {
             static mut EMMC: Emmc2Wrapper = Emmc2Wrapper;
             // SAFETY: Single-task access.
-            unsafe { &mut EMMC as &mut dyn BlockDevice }
+            unsafe { &mut *core::ptr::addr_of_mut!(EMMC) as &mut dyn BlockDevice }
         }
         ActiveDevice::RamDisk => ramdisk::device(),
         ActiveDevice::None => return Err(BlockError::NoMedia),

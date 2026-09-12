@@ -1,5 +1,5 @@
-use core::cell::UnsafeCell;
 use crate::sched::CriticalSection;
+use core::cell::UnsafeCell;
 
 struct WatchdogState {
     enabled: bool,
@@ -55,7 +55,10 @@ pub fn tick() {
     s.counter += 1;
     if s.counter >= s.timeout_ticks {
         s.enabled = false;
-        panic!("SOFTWARE WATCHDOG TIMEOUT: no kick in {}ms", s.timeout_ticks);
+        panic!(
+            "SOFTWARE WATCHDOG TIMEOUT: no kick in {}ms",
+            s.timeout_ticks
+        );
     }
 }
 

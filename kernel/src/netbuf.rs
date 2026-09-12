@@ -1,7 +1,7 @@
-use core::sync::atomic::{AtomicU8, Ordering};
+use crate::mm::{DMA_POOL_BASE, DMA_POOL_SIZE};
 use crate::os_cfg;
 use crate::spinlock::SpinLock;
-use crate::mm::{DMA_POOL_BASE, DMA_POOL_SIZE};
+use core::sync::atomic::{AtomicU8, Ordering};
 
 const BUF_SLOT_SIZE: usize = os_cfg::NETBUF_SLOT_SIZE;
 const BUF_DATA_CAPACITY: u16 = os_cfg::NETBUF_DATA_CAPACITY as u16;
@@ -21,6 +21,10 @@ impl NetBuf {
         (self.tail - self.head) as usize
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.tail == self.head
+    }
+
     pub fn as_slice(&self) -> &[u8] {
         // SAFETY: data is a valid NC buffer from the DMA pool.
         unsafe { core::slice::from_raw_parts(self.data.add(self.head as usize), self.len()) }
@@ -28,9 +32,7 @@ impl NetBuf {
 
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY: data is a valid NC buffer from the DMA pool.
-        unsafe {
-            core::slice::from_raw_parts_mut(self.data.add(self.head as usize), self.len())
-        }
+        unsafe { core::slice::from_raw_parts_mut(self.data.add(self.head as usize), self.len()) }
     }
 
     pub fn push_data(&mut self, src: &[u8]) -> bool {
@@ -90,6 +92,7 @@ struct PoolCell(core::cell::UnsafeCell<Pool>);
 // SAFETY: Access protected by POOL_LOCK.
 unsafe impl Sync for PoolCell {}
 
+#[allow(clippy::declare_interior_mutable_const)]
 const UNINIT_NETBUF: NetBuf = NetBuf {
     data: core::ptr::null_mut(),
     head: 0,
@@ -119,13 +122,13 @@ pub fn init() {
     p.total = num_bufs as u16;
     p.free_count = num_bufs as u16;
 
-    for i in 0..num_bufs {
+    for (i, buf) in p.bufs.iter_mut().enumerate().take(num_bufs) {
         let slot_addr = DMA_POOL_BASE + i * BUF_SLOT_SIZE;
-        p.bufs[i].data = slot_addr as *mut u8;
-        p.bufs[i].head = BUF_HEADROOM;
-        p.bufs[i].tail = BUF_HEADROOM;
-        p.bufs[i].capacity = BUF_DATA_CAPACITY;
-        p.bufs[i].refcount = AtomicU8::new(0);
+        buf.data = slot_addr as *mut u8;
+        buf.head = BUF_HEADROOM;
+        buf.tail = BUF_HEADROOM;
+        buf.capacity = BUF_DATA_CAPACITY;
+        buf.refcount = AtomicU8::new(0);
         // Thread free list through refcount=0 buffers using a chain index
         // stored as the next 2 bytes after the slot header area.
         // We use a simple index chain: bufs[i] -> bufs[i+1] -> ... -> 0xFFFF

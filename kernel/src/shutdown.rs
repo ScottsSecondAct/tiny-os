@@ -17,14 +17,22 @@ pub struct DiagRegion {
 }
 
 static mut DIAG: DiagRegion = DiagRegion {
-    esr: 0, elr: 0, far: 0, spsr: 0,
+    esr: 0,
+    elr: 0,
+    far: 0,
+    spsr: 0,
     regs: [0; 31],
-    tick: 0, core_id: 0, task_id: 0, valid: false,
+    tick: 0,
+    core_id: 0,
+    task_id: 0,
+    valid: false,
 };
 
 pub fn structured_shutdown(reason: &str, esr: u64, elr: u64, far: u64) {
     if SHUTDOWN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        loop { unsafe { core::arch::asm!("wfe") }; }
+        loop {
+            unsafe { core::arch::asm!("wfe") };
+        }
     }
 
     // Step 1: Mask all interrupts on this core.
@@ -70,7 +78,7 @@ pub fn structured_shutdown(reason: &str, esr: u64, elr: u64, far: u64) {
 
 pub fn diag_region() -> &'static DiagRegion {
     // SAFETY: Read-only after shutdown completes.
-    unsafe { &DIAG }
+    unsafe { &*core::ptr::addr_of!(DIAG) }
 }
 
 fn halt_all_cores() -> ! {

@@ -62,19 +62,27 @@ fn syscall(nr: u64, a0: u64, a1: u64) -> u64 {
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_delay(ms: u32) { syscall(SYS_DELAY, ms as u64, 0); }
+fn sys_delay(ms: u32) {
+    syscall(SYS_DELAY, ms as u64, 0);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_write_raw(ptr: *const u8, len: usize) { syscall(SYS_WRITE, ptr as u64, len as u64); }
+fn sys_write_raw(ptr: *const u8, len: usize) {
+    syscall(SYS_WRITE, ptr as u64, len as u64);
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_temperature() -> i32 { syscall(SYS_TEMPERATURE, 0, 0) as i32 }
+fn sys_temperature() -> i32 {
+    syscall(SYS_TEMPERATURE, 0, 0) as i32
+}
 
 #[link_section = ".user.text"]
 #[inline(always)]
-fn sys_power(op: u64) -> u64 { syscall4(SYS_POWER, op, 0, 0, 0) }
+fn sys_power(op: u64) -> u64 {
+    syscall4(SYS_POWER, op, 0, 0, 0)
+}
 
 // ── String constants (must live in .user.text for EL0 access) ────────────────
 
@@ -158,7 +166,9 @@ fn wstatic(buf: *mut u8, pos: usize, src: *const u8, len: usize) -> usize {
 #[inline(always)]
 fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     if val == 0 {
-        unsafe { core::ptr::write_volatile(buf.add(pos), b'0'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(pos), b'0');
+        }
         return pos + 1;
     }
     let mut tmp = [0u8; 20];
@@ -166,7 +176,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
     let mut n: usize = 0;
     let mut v = val;
     while v > 0 {
-        unsafe { core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8)); }
+        unsafe {
+            core::ptr::write_volatile(tp.add(n), b'0'.wrapping_add((v % 10) as u8));
+        }
         v /= 10;
         n = n.wrapping_add(1);
     }
@@ -189,7 +201,9 @@ fn wu64(buf: *mut u8, pos: usize, val: u64) -> usize {
 fn wtemp(buf: *mut u8, pos: usize, mc: i32) -> usize {
     let mut p = pos;
     let (whole, frac) = if mc < 0 {
-        unsafe { core::ptr::write_volatile(buf.add(p), b'-'); }
+        unsafe {
+            core::ptr::write_volatile(buf.add(p), b'-');
+        }
         p = p.wrapping_add(1);
         let abs = (-(mc as i64)) as u64;
         (abs / 1000, ((abs % 1000) / 100) as u8)
@@ -234,8 +248,12 @@ pub fn power_monitor_main(_arg: usize) -> ! {
 
         // Update min/max temperature tracking
         if temp >= 0 {
-            if temp < min_temp { min_temp = temp; }
-            if temp > max_temp { max_temp = temp; }
+            if temp < min_temp {
+                min_temp = temp;
+            }
+            if temp > max_temp {
+                max_temp = temp;
+            }
         }
 
         count = count.wrapping_add(1);
@@ -313,7 +331,7 @@ pub fn power_monitor_main(_arg: usize) -> ! {
         }
 
         // Print summary every SUMMARY_INTERVAL readings
-        if count % SUMMARY_INTERVAL == 0 && min_temp != i32::MAX {
+        if count.is_multiple_of(SUMMARY_INTERVAL) && min_temp != i32::MAX {
             // "[power-monitor] === 10-reading summary ==="
             let mut sbuf: core::mem::MaybeUninit<[u8; 96]> = core::mem::MaybeUninit::uninit();
             let sp = sbuf.as_mut_ptr() as *mut u8;
@@ -321,7 +339,12 @@ pub fn power_monitor_main(_arg: usize) -> ! {
 
             spos = wstatic(sp, spos, S_SUMMARY_HDR.as_ptr(), S_SUMMARY_HDR.len());
             spos = wu64(sp, spos, count);
-            spos = wstatic(sp, spos, S_SUMMARY_READINGS.as_ptr(), S_SUMMARY_READINGS.len());
+            spos = wstatic(
+                sp,
+                spos,
+                S_SUMMARY_READINGS.as_ptr(),
+                S_SUMMARY_READINGS.len(),
+            );
             spos = wstatic(sp, spos, S_NL.as_ptr(), S_NL.len());
             sys_write_raw(sp, spos);
 

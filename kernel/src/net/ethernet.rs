@@ -36,7 +36,12 @@ pub fn strip_header(buf: &mut NetBuf) {
     buf.head += ETH_HEADER_LEN as u16;
 }
 
-pub fn prepend_header(buf: &mut NetBuf, dst_mac: &[u8; 6], src_mac: &[u8; 6], ethertype: u16) -> bool {
+pub fn prepend_header(
+    buf: &mut NetBuf,
+    dst_mac: &[u8; 6],
+    src_mac: &[u8; 6],
+    ethertype: u16,
+) -> bool {
     let mut hdr = [0u8; ETH_HEADER_LEN];
     hdr[0..6].copy_from_slice(dst_mac);
     hdr[6..12].copy_from_slice(src_mac);

@@ -1,6 +1,6 @@
-use core::cell::UnsafeCell;
 use crate::os_cfg;
 use crate::sched::{self, CriticalSection, WaitResult};
+use core::cell::UnsafeCell;
 
 const MAX_EVENT_WAITERS: usize = os_cfg::MAX_EVENT_WAITERS;
 const NONE: u8 = 0xFF;
@@ -47,6 +47,7 @@ impl EventFlags {
         }
     }
 
+    #[allow(clippy::mut_from_ref)]
     fn inner(&self) -> &mut EventInner {
         // SAFETY: Caller holds CriticalSection.
         unsafe { &mut *self.inner.get() }
@@ -86,12 +87,7 @@ impl EventFlags {
         self.wait_impl(mask, mode, ticks)
     }
 
-    fn wait_impl(
-        &self,
-        mask: u32,
-        mode: EventWaitMode,
-        timeout: u32,
-    ) -> Result<u32, &'static str> {
+    fn wait_impl(&self, mask: u32, mode: EventWaitMode, timeout: u32) -> Result<u32, &'static str> {
         let _cs = CriticalSection::enter();
         let e = self.inner();
 

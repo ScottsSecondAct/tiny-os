@@ -46,7 +46,7 @@ pub fn parse_mbr(dev: &mut dyn BlockDevice) -> Result<[Option<Partition>; 4], Bl
     }
 
     let mut partitions = [None; 4];
-    for i in 0..4 {
+    for (i, slot) in partitions.iter_mut().enumerate() {
         let offset = PARTITION_TABLE_OFFSET + i * PARTITION_ENTRY_SIZE;
         let entry = &sector[offset..offset + PARTITION_ENTRY_SIZE];
 
@@ -55,7 +55,7 @@ pub fn parse_mbr(dev: &mut dyn BlockDevice) -> Result<[Option<Partition>; 4], Bl
             continue;
         }
 
-        partitions[i] = Some(Partition {
+        *slot = Some(Partition {
             status: entry[0],
             part_type,
             lba_start: u32::from_le_bytes([entry[8], entry[9], entry[10], entry[11]]),

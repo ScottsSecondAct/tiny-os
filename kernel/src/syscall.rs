@@ -1,5 +1,5 @@
-use arch::aarch64::exceptions::TrapFrame;
 use crate::{kprintln, sched};
+use arch::aarch64::exceptions::TrapFrame;
 
 // --- Basic syscalls (direct) ---
 const SYS_YIELD: u64 = 0;
@@ -214,11 +214,14 @@ fn dispatch_fs(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
                 Ok(entry) => {
                     let out = a3 as *mut StatResult;
                     unsafe {
-                        core::ptr::write_unaligned(out, StatResult {
-                            size: entry.size,
-                            is_dir: if entry.is_dir { 1 } else { 0 },
-                            cluster: entry.cluster,
-                        });
+                        core::ptr::write_unaligned(
+                            out,
+                            StatResult {
+                                size: entry.size,
+                                is_dir: if entry.is_dir { 1 } else { 0 },
+                                cluster: entry.cluster,
+                            },
+                        );
                     }
                     0
                 }
@@ -354,9 +357,7 @@ fn dispatch_spi(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
                 Err(_) => E_IO,
             }
         }
-        SPI_CLOSE => {
-            0
-        }
+        SPI_CLOSE => 0,
         _ => E_NOSYS,
     }
 }
@@ -369,7 +370,9 @@ fn dispatch_i2c(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match op {
         I2C_OPEN => {
             // a1=clock_hz (100000 or 400000)
-            let config = I2cConfig { clock_hz: a1 as u32 };
+            let config = I2cConfig {
+                clock_hz: a1 as u32,
+            };
             match periph::i2c_configure(&config) {
                 Ok(()) => 0,
                 Err(_) => E_IO,
@@ -397,9 +400,7 @@ fn dispatch_i2c(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
                 Err(_) => E_IO,
             }
         }
-        I2C_CLOSE => {
-            0
-        }
+        I2C_CLOSE => 0,
         _ => E_NOSYS,
     }
 }
@@ -431,7 +432,13 @@ fn dispatch_gpio(op: u64, a1: u64, a2: u64, _a3: u64) -> u64 {
         GPIO_READ => {
             // a1=pin
             match periph::gpio_read(a1 as u8) {
-                Ok(high) => if high { 1 } else { 0 },
+                Ok(high) => {
+                    if high {
+                        1
+                    } else {
+                        0
+                    }
+                }
                 Err(_) => E_IO,
             }
         }
@@ -473,8 +480,16 @@ fn dispatch_uart(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
                 2 => Parity::Even,
                 _ => return E_INVAL,
             };
-            let stop_bits = if a3 & 0x4 != 0 { StopBits::Two } else { StopBits::One };
-            let flow = if a3 & 0x8 != 0 { FlowControl::RtsCts } else { FlowControl::None };
+            let stop_bits = if a3 & 0x4 != 0 {
+                StopBits::Two
+            } else {
+                StopBits::One
+            };
+            let flow = if a3 & 0x8 != 0 {
+                FlowControl::RtsCts
+            } else {
+                FlowControl::None
+            };
             let config = SerialConfig {
                 port: a1 as u8,
                 baud_rate: a2 as u32,
@@ -581,7 +596,9 @@ fn dispatch_rtc(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
             match rtc::get_time() {
                 Ok(dt) => {
                     let out = a1 as *mut DateTime;
-                    unsafe { core::ptr::write_unaligned(out, dt); }
+                    unsafe {
+                        core::ptr::write_unaligned(out, dt);
+                    }
                     0
                 }
                 Err(_) => E_IO,
@@ -609,12 +626,10 @@ fn dispatch_rtc(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
                 Err(_) => E_INVAL,
             }
         }
-        RTC_CLEAR_ALARM => {
-            match rtc::clear_alarm() {
-                Ok(()) => 0,
-                Err(_) => E_IO,
-            }
-        }
+        RTC_CLEAR_ALARM => match rtc::clear_alarm() {
+            Ok(()) => 0,
+            Err(_) => E_IO,
+        },
         _ => E_NOSYS,
     }
 }
@@ -693,7 +708,11 @@ fn dispatch_crypto(op: u64, a1: u64, a2: u64, a3: u64) -> u64 {
             }
         }
         CRYPTO_DETECT => {
-            if ArmCryptoEngine::detect() { 1 } else { 0 }
+            if ArmCryptoEngine::detect() {
+                1
+            } else {
+                0
+            }
         }
         _ => E_NOSYS,
     }
@@ -704,12 +723,10 @@ fn dispatch_power(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
     use crate::power;
 
     match op {
-        POWER_GET_FREQ => {
-            match power::get_cpu_freq() {
-                Ok(hz) => hz as u64,
-                Err(_) => E_IO,
-            }
-        }
+        POWER_GET_FREQ => match power::get_cpu_freq() {
+            Ok(hz) => hz as u64,
+            Err(_) => E_IO,
+        },
         POWER_SET_FREQ => {
             // a1=frequency in Hz
             match power::set_cpu_freq(a1 as u32) {
@@ -717,24 +734,18 @@ fn dispatch_power(op: u64, a1: u64, _a2: u64, _a3: u64) -> u64 {
                 Err(_) => E_IO,
             }
         }
-        POWER_GET_MAX_FREQ => {
-            match power::get_max_freq() {
-                Ok(hz) => hz as u64,
-                Err(_) => E_IO,
-            }
-        }
-        POWER_GET_MIN_FREQ => {
-            match power::get_min_freq() {
-                Ok(hz) => hz as u64,
-                Err(_) => E_IO,
-            }
-        }
-        POWER_GET_VOLTAGE => {
-            match power::get_voltage() {
-                Ok(uv) => uv as u64,
-                Err(_) => E_IO,
-            }
-        }
+        POWER_GET_MAX_FREQ => match power::get_max_freq() {
+            Ok(hz) => hz as u64,
+            Err(_) => E_IO,
+        },
+        POWER_GET_MIN_FREQ => match power::get_min_freq() {
+            Ok(hz) => hz as u64,
+            Err(_) => E_IO,
+        },
+        POWER_GET_VOLTAGE => match power::get_voltage() {
+            Ok(uv) => uv as u64,
+            Err(_) => E_IO,
+        },
         POWER_IDLE => {
             power::cpu_idle();
             0
@@ -777,15 +788,24 @@ pub fn dispatch(tf: &mut TrapFrame) {
 
     let required_cap = cap_for_syscall(syscall_nr);
     if required_cap != 0 && !sched::task_has_capability(required_cap) {
-        crate::audit::log(crate::audit::AuditEvent::CapabilityDenied,
+        crate::audit::log(
+            crate::audit::AuditEvent::CapabilityDenied,
             match syscall_nr {
-                SYS_FS => "FS", SYS_NET => "NET", SYS_SPI => "SPI",
-                SYS_I2C => "I2C", SYS_GPIO => "GPIO",
-                SYS_UART => "UART", SYS_PWM => "PWM", SYS_RTC => "RTC",
-                SYS_DMA => "DMA", SYS_USB => "USB", SYS_CRYPTO => "CRYPTO",
+                SYS_FS => "FS",
+                SYS_NET => "NET",
+                SYS_SPI => "SPI",
+                SYS_I2C => "I2C",
+                SYS_GPIO => "GPIO",
+                SYS_UART => "UART",
+                SYS_PWM => "PWM",
+                SYS_RTC => "RTC",
+                SYS_DMA => "DMA",
+                SYS_USB => "USB",
+                SYS_CRYPTO => "CRYPTO",
                 SYS_POWER => "POWER",
                 _ => "syscall",
-            });
+            },
+        );
         tf.regs[0] = E_PERM;
         return;
     }
@@ -817,24 +837,18 @@ pub fn dispatch(tf: &mut TrapFrame) {
             }
             len as u64
         }
-        SYS_TASK_ID => {
-            sched::current_task_id() as u64
-        }
-        SYS_UPTIME => {
-            arch::aarch64::exceptions::tick_count()
-        }
+        SYS_TASK_ID => sched::current_task_id() as u64,
+        SYS_UPTIME => arch::aarch64::exceptions::tick_count(),
         SYS_EXIT => {
             let id = sched::current_task_id();
             kprintln!("[syscall] task {} called exit", id);
             sched::task_terminate(id);
             0
         }
-        SYS_TEMPERATURE => {
-            match arch::aarch64::mailbox::get_temperature() {
-                Some(mc) => mc as u64,
-                None => u64::MAX,
-            }
-        }
+        SYS_TEMPERATURE => match arch::aarch64::mailbox::get_temperature() {
+            Some(mc) => mc as u64,
+            None => u64::MAX,
+        },
         SYS_FS => dispatch_fs(a0, a1, a2, a3),
         SYS_NET => dispatch_net(a0, a1, a2, a3),
         SYS_SPI => dispatch_spi(a0, a1, a2, a3),
