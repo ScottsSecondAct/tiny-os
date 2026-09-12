@@ -1,5 +1,6 @@
 # tiny-os
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-green.svg)](https://github.com/ScottsSecondAct/some) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) ![AI Assisted](https://img.shields.io/badge/AI%20Assisted-Claude-blue?logo=anthropic) [![CI](https://github.com/ScottsSecondAct/tiny-os/actions/workflows/ci.yml/badge.svg)](https://github.com/ScottsSecondAct/tiny-os/actions/workflows/ci.yml)
+
 A bare-metal real-time operating system written in Rust, targeting the Raspberry Pi 5 (BCM2712 SoC, quad Cortex-A76, GIC-400). Designed for portability across ARM Cortex-A and Cortex-M families via a clean HAL trait layer. The specification (v1.2) includes RTOS certification provisions for IEC 61508 SIL-2, ISO 26262 ASIL-B, and DO-178C DAL-C, with WCET bounds, MC/DC coverage targets, health monitoring, watchdog integration, and mixed-criticality partitioning.
 
 > **Note to CSU Sacramento CS students:** I wrote this project to show students what Claude Code can do and what a well-structured GitHub project can look like. If you're trying to land an internship or about to graduate, I strongly encourage you to put your projects on GitHub — it makes a real difference in your job search. Employers want to see what you can build, and a public repo is the easiest way to show them.
