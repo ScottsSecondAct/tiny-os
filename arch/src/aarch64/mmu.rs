@@ -349,11 +349,11 @@ pub unsafe fn create_user_page_table(
                     (*l3).entries[j] = page_pa | page_attrs;
                 }
 
-                let guard_page = user_stack_base.wrapping_sub(PAGE_SIZE_4K);
-                if guard_page >= block_base {
-                    let guard_idx = (guard_page - block_base) / PAGE_SIZE_4K;
-                    (*l3).entries[guard_idx] = 0;
-                }
+                // Guard page below the user stack keeps kernel-only permissions
+                // (inherited from the block entry). EL0 access faults on
+                // permission, but EL1 can still reach kernel stacks in the
+                // same 2 MB block — which matters because TTBR0 swaps before
+                // context_switch saves the outgoing task's registers.
 
                 for p in 0..user_stack_pages {
                     let page_addr = user_stack_base + p * PAGE_SIZE_4K;
@@ -411,7 +411,7 @@ pub unsafe fn create_user_page_table_mapped(mappings: &[UserMapping]) -> u64 {
     }
 
     // For each mapping, create L3 page table entries with EL0 permissions.
-    for (mi, mapping) in mappings.iter().enumerate() {
+    for mapping in mappings.iter() {
         if mapping.pages == 0 {
             continue;
         }
@@ -480,14 +480,11 @@ pub unsafe fn create_user_page_table_mapped(mappings: &[UserMapping]) -> u64 {
                 }
             }
 
-            // Place a guard page below the last mapping (stack).
-            if mi == mappings.len() - 1 {
-                let guard_page = mapping.base.wrapping_sub(PAGE_SIZE_4K);
-                if guard_page >= block_base && guard_page < block_base + BLOCK_SIZE_2M {
-                    let guard_idx = (guard_page - block_base) / PAGE_SIZE_4K;
-                    (*l3).entries[guard_idx] = 0;
-                }
-            }
+            // Guard page below the last mapping (stack) keeps kernel-only
+            // permissions so EL0 faults on access but EL1 can still reach
+            // kernel stacks that share the same 2 MB block.
+            // (No action needed — the L3 entry inherits its kernel-only
+            // attributes from the block-to-page split above.)
 
             block_base += BLOCK_SIZE_2M;
         }
