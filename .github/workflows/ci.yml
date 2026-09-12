@@ -25,23 +25,49 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: Install Rust toolchain
-        run: rustup show   # rust-toolchain.toml drives the install
+        run: rustup show
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-check-
 
       - name: rustfmt
         run: cargo fmt --all -- --check
 
-      - name: Clippy (Pi 5 BSP)
+      - name: Clippy (Pi 5)
         run: cargo clippy --release -- -D warnings
 
-      - name: Clippy (QEMU BSP)
+      - name: Clippy (QEMU)
         run: cargo clippy --release --no-default-features --features kernel/bsp-qemu -- -D warnings
 
   # ---------------------------------------------------------------------------
-  # Build — Raspberry Pi 5 (default BSP)
+  # Build matrix — all 6 configurations
   # ---------------------------------------------------------------------------
-  build-rpi5:
-    name: Build (Pi 5)
+  build:
+    name: Build (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: qemu
+            flags: --no-default-features --features kernel/bsp-qemu
+          - name: qemu + safety-critical
+            flags: --no-default-features --features kernel/bsp-qemu,kernel/safety-critical
+          - name: qemu + dynamic-load
+            flags: --no-default-features --features kernel/bsp-qemu,kernel/dynamic-load
+          - name: rpi5
+            flags: ""
+          - name: rpi5 + safety-critical
+            flags: --no-default-features --features kernel/bsp-rpi5,kernel/safety-critical
+          - name: rpi5 + dynamic-load
+            flags: --no-default-features --features kernel/bsp-rpi5,kernel/dynamic-load
     steps:
       - uses: actions/checkout@v4
 
@@ -53,13 +79,188 @@ jobs:
       - name: Install Rust toolchain
         run: rustup show
 
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-${{ matrix.name }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-build-${{ matrix.name }}-
+
       - name: Build
+        run: cargo build --release ${{ matrix.flags }}
+
+  # ---------------------------------------------------------------------------
+  # Host-side unit tests (51 tests, no QEMU needed)
+  # ---------------------------------------------------------------------------
+  test-host:
+    name: Host Tests (51 tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Add x86_64 target
+        run: rustup target add x86_64-unknown-linux-gnu
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-host-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-test-host-
+
+      - name: Run host tests
+        run: cargo test -p host-tests --target x86_64-unknown-linux-gnu
+
+  # ---------------------------------------------------------------------------
+  # QEMU integration tests (15 boot verification checks)
+  # ---------------------------------------------------------------------------
+  test-qemu:
+    name: QEMU Boot Tests (15 checks)
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu qemu-system-aarch64
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-qemu-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-build-qemu-
+
+      - name: Build (QEMU)
+        run: cargo build --release --no-default-features --features kernel/bsp-qemu
+
+      - name: Boot QEMU and capture output
+        run: |
+          timeout 15 qemu-system-aarch64 \
+            -M raspi4b \
+            -smp 4 \
+            -kernel target/aarch64-unknown-none/release/kernel \
+            -serial stdio \
+            -display none \
+            -no-reboot \
+          | tee tests/qemu/last_output.txt || true
+
+      - name: Verify boot output (15 checks)
+        run: |
+          OUTPUT="tests/qemu/last_output.txt"
+          PASS=0
+          FAIL=0
+
+          check() {
+            local name="$1"
+            local pattern="$2"
+            if grep -qiE "$pattern" "$OUTPUT"; then
+              echo "  [PASS] $name"
+              PASS=$((PASS + 1))
+            else
+              echo "  [FAIL] $name (pattern: '$pattern')"
+              FAIL=$((FAIL + 1))
+            fi
+          }
+
+          check_not() {
+            local name="$1"
+            local pattern="$2"
+            if grep -qiE "$pattern" "$OUTPUT"; then
+              echo "  [FAIL] $name (found: '$pattern')"
+              FAIL=$((FAIL + 1))
+            else
+              echo "  [PASS] $name"
+              PASS=$((PASS + 1))
+            fi
+          }
+
+          echo "=== QEMU Integration Test Results ==="
+          check "Kernel banner"       "tiny_os"
+          check "UART init"           "uart|UART|AArch64 EL1"
+          check "MMU enabled"         "mmu|MMU"
+          check "Timer running"       "timer|Timer"
+          check "Scheduler started"   "sched|scheduler"
+          check "SMP core 1"          "core 1 online|core 1:"
+          check "SMP core 2"          "core 2 online|core 2:"
+          check "SMP core 3"          "core 3 online|core 3:"
+          check "Network loopback"    "loopback|net:"
+          check "Filesystem mounted"  "fat32|ramdisk|FAT32|mount"
+          check "User task at EL0"    "\[user\]|EL0|user.task"
+          check "Code integrity"      "integrity.*CRC32"
+          check "Audit log init"      "audit.*ring.buffer"
+          check "Shell prompt"        "tiny_os>"
+          check_not "No kernel panic" "panic|PANIC"
+
+          echo ""
+          echo "--- Summary: $PASS passed, $FAIL failed ---"
+
+          if [ "$FAIL" -gt 0 ]; then
+            echo ""
+            echo "First 40 lines of QEMU output:"
+            head -40 "$OUTPUT"
+            exit 1
+          fi
+
+      - name: Upload QEMU output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-boot-output
+          path: tests/qemu/last_output.txt
+
+  # ---------------------------------------------------------------------------
+  # Produce kernel8.img artifact
+  # ---------------------------------------------------------------------------
+  kernel-image:
+    name: kernel8.img
+    runs-on: ubuntu-latest
+    needs: [check, build, test-host, test-qemu]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-rpi5-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-build-rpi5-
+
+      - name: Build (Pi 5)
         run: cargo build --release
 
       - name: Verify _start at 0x80000
         run: |
-          aarch64-linux-gnu-nm target/aarch64-unknown-none/release/kernel | grep _start
-          aarch64-linux-gnu-nm target/aarch64-unknown-none/release/kernel | grep _start | grep -q "0000000000080000"
+          aarch64-linux-gnu-nm target/aarch64-unknown-none/release/kernel \
+            | grep _start | grep -q "0000000000080000"
 
       - name: Produce kernel8.img
         run: |
@@ -72,56 +273,3 @@ jobs:
         with:
           name: kernel8-rpi5
           path: kernel8.img
-
-  # ---------------------------------------------------------------------------
-  # Build — QEMU (raspi3b BSP)
-  # ---------------------------------------------------------------------------
-  build-qemu:
-    name: Build (QEMU)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-
-      - name: Install Rust toolchain
-        run: rustup show
-
-      - name: Build
-        run: cargo build --release --no-default-features --features kernel/bsp-qemu
-
-  # ---------------------------------------------------------------------------
-  # Boot test — run in QEMU and verify serial output
-  # ---------------------------------------------------------------------------
-  qemu-boot:
-    name: QEMU Boot Test
-    runs-on: ubuntu-latest
-    needs: build-qemu
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu qemu-system-aarch64
-
-      - name: Install Rust toolchain
-        run: rustup show
-
-      - name: Build (QEMU BSP)
-        run: cargo build --release --no-default-features --features kernel/bsp-qemu
-
-      - name: Run QEMU and verify boot banner
-        run: |
-          timeout 15 qemu-system-aarch64 \
-            -M raspi3b \
-            -kernel target/aarch64-unknown-none/release/kernel \
-            -serial stdio \
-            -display none \
-            -no-reboot \
-          | tee /tmp/qemu-output.txt || true
-          grep -q "tiny_os Phase 1 boot" /tmp/qemu-output.txt
-          echo "Boot test passed."
